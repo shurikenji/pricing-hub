@@ -1,0 +1,14 @@
+.next
+node_modules
+.env.local
+dist
+data/*.sqlite
+data/*.db
+data/servers.local.json
+tsconfig.tsbuildinfo
+.gitnexus
+.claude
+AGENTS.md
+CLAUDE.md
+__pycache__/
+*.pyc
