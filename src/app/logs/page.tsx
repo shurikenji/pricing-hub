@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { buildCsv, triggerCsvDownload } from "@/lib/csv";
+import { getErrorMessage } from "@/lib/error-utils";
 import type { LogEntry, PricingMode } from "@/lib/types";
 
 interface ServerOption {
@@ -23,14 +25,15 @@ function formatPrice(value: number | undefined) {
 }
 
 export default function LogsPage() {
+  const initialParams = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const [servers, setServers] = useState<ServerOption[]>([]);
-  const [serverId, setServerId] = useState("");
+  const [serverId, setServerId] = useState(initialParams.get("server") || "");
   const [apiKey, setApiKey] = useState("");
-  const [tokenName, setTokenName] = useState("");
-  const [modelName, setModelName] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [group, setGroup] = useState("");
+  const [tokenName, setTokenName] = useState(initialParams.get("token") || "");
+  const [modelName, setModelName] = useState(initialParams.get("model") || "");
+  const [startDate, setStartDate] = useState(initialParams.get("start") || "");
+  const [endDate, setEndDate] = useState(initialParams.get("end") || "");
+  const [group, setGroup] = useState(initialParams.get("group") || "");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -45,10 +48,22 @@ export default function LogsPage() {
       .then((data: ServerOption[]) => {
         setServers(data);
         if (data.length > 0) {
-          setServerId(data[0].id);
+          setServerId((current) => current || data[0].id);
         }
       });
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (serverId) params.set("server", serverId);
+    if (tokenName) params.set("token", tokenName);
+    if (modelName) params.set("model", modelName);
+    if (group) params.set("group", group);
+    if (startDate) params.set("start", startDate);
+    if (endDate) params.set("end", endDate);
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
+  }, [endDate, group, modelName, serverId, startDate, tokenName]);
 
   async function fetchLogs(nextPage = 1) {
     if (!serverId || (!apiKey && !tokenName)) {
@@ -80,7 +95,7 @@ export default function LogsPage() {
 
     const payload = await response.json();
     if (!response.ok) {
-      setError(payload.error || "Failed to load usage logs.");
+      setError(getErrorMessage(payload, "Failed to load usage logs."));
       setLogs([]);
       setLoading(false);
       return;
@@ -96,6 +111,25 @@ export default function LogsPage() {
   const totalPages = Math.max(1, Math.ceil(total / 50));
   const totalEstimated = logs.reduce((sum, log) => sum + (log.estimatedUsd || 0), 0);
 
+  function exportCsv() {
+    const csv = buildCsv(
+      ["time", "model", "group", "token", "mode", "prompt_tokens", "completion_tokens", "quota", "estimated_usd", "latency_seconds"],
+      logs.map((log) => [
+        new Date(log.createdAt * 1000).toISOString(),
+        log.model,
+        log.group,
+        log.tokenName,
+        log.pricingMode,
+        log.promptTokens,
+        log.completionTokens,
+        log.quota,
+        log.estimatedUsd,
+        log.useTime,
+      ]),
+    );
+    triggerCsvDownload(`logs-${serverId || "server"}.csv`, csv);
+  }
+
   return (
     <>
       <div className="page-header">
@@ -103,6 +137,13 @@ export default function LogsPage() {
         <p className="page-description">
           Resolve usage history from an API key server-side so admin credentials never reach the browser.
         </p>
+      </div>
+
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card-title" style={{ marginBottom: 8 }}>How Log Lookup Works</div>
+        <div className="card-subtitle">
+          When you provide an API key, the server resolves the token name server-side and fetches logs without exposing admin credentials to the browser. `Estimated cost` is derived from normalized pricing metadata when the upstream includes enough fields.
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 24 }}>
@@ -153,6 +194,9 @@ export default function LogsPage() {
         <div style={{ marginTop: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <button className="btn btn-primary" onClick={() => void fetchLogs(1)} disabled={loading}>
             {loading ? "Loading..." : "Fetch Logs"}
+          </button>
+          <button className="btn btn-ghost" onClick={exportCsv} disabled={logs.length === 0}>
+            Export CSV
           </button>
           {resolution.tokenName ? <span className="badge badge-cyan">Resolved token: {resolution.tokenName}</span> : null}
         </div>

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { buildCsv, triggerCsvDownload } from "@/lib/csv";
+import { getErrorMessage } from "@/lib/error-utils";
 import type { GroupPriceSnapshot, NormalizedModel, NormalizedPricing, PricingMode } from "@/lib/types";
 
 interface ServerOption {
@@ -9,6 +11,8 @@ interface ServerOption {
   name: string;
   type: string;
   supportsGroupChain: boolean;
+  groupSelectionMode?: string;
+  groupMatchMode?: string;
   notes?: string;
 }
 
@@ -46,18 +50,23 @@ function resolveSnapshots(model: NormalizedModel, selectedGroups: Set<string>): 
 }
 
 export default function PricingPage() {
+  const initialParams = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const [servers, setServers] = useState<ServerOption[]>([]);
-  const [selectedServer, setSelectedServer] = useState("");
+  const [selectedServer, setSelectedServer] = useState(initialParams.get("server") || "");
   const [pricing, setPricing] = useState<NormalizedPricing | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
-  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
-  const [sortKey, setSortKey] = useState<SortKey>("modelName");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [showToken, setShowToken] = useState(true);
-  const [showRequestScaled, setShowRequestScaled] = useState(true);
-  const [showFixed, setShowFixed] = useState(true);
+  const [search, setSearch] = useState(initialParams.get("q") || "");
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set((initialParams.get("groups") || "").split(",").filter(Boolean)));
+  const [sortKey, setSortKey] = useState<SortKey>((initialParams.get("sort") as SortKey) || "modelName");
+  const [sortDir, setSortDir] = useState<SortDir>((initialParams.get("dir") as SortDir) || "asc");
+  const [showToken, setShowToken] = useState(initialParams.get("token") !== "0");
+  const [showRequestScaled, setShowRequestScaled] = useState(initialParams.get("requestScaled") !== "0");
+  const [showFixed, setShowFixed] = useState(initialParams.get("fixed") !== "0");
+  const [endpointFilter, setEndpointFilter] = useState(initialParams.get("endpoint") || "");
+  const [groupCountFilter, setGroupCountFilter] = useState(initialParams.get("groupCount") || "");
+  const [selectedModelName, setSelectedModelName] = useState<string | null>(null);
+  const [fetchMeta, setFetchMeta] = useState<{ source?: string; snapshotId?: string; ageMs?: string }>({});
 
   useEffect(() => {
     void fetch("/api/servers")
@@ -65,26 +74,49 @@ export default function PricingPage() {
       .then((data: ServerOption[]) => {
         setServers(data);
         if (data.length > 0) {
-          setSelectedServer(data[0].id);
+          setSelectedServer((current) => current || data[0].id);
         }
       })
       .catch(() => setError("Failed to load servers."));
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams();
+    if (selectedServer) params.set("server", selectedServer);
+    if (search) params.set("q", search);
+    if (selectedGroups.size > 0) params.set("groups", Array.from(selectedGroups).join(","));
+    if (sortKey !== "modelName") params.set("sort", sortKey);
+    if (sortDir !== "asc") params.set("dir", sortDir);
+    if (!showToken) params.set("token", "0");
+    if (!showRequestScaled) params.set("requestScaled", "0");
+    if (!showFixed) params.set("fixed", "0");
+    if (endpointFilter) params.set("endpoint", endpointFilter);
+    if (groupCountFilter) params.set("groupCount", groupCountFilter);
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
+  }, [endpointFilter, groupCountFilter, search, selectedGroups, selectedServer, showFixed, showRequestScaled, showToken, sortDir, sortKey]);
+
+  useEffect(() => {
     if (!selectedServer) return;
     setLoading(true);
     setError("");
-    setSelectedGroups(new Set());
     void fetch(`/api/pricing?server=${selectedServer}`)
-      .then((response) => {
+      .then(async (response) => {
         if (!response.ok) {
-          throw new Error("pricing");
+          throw await response.json().catch(() => null);
         }
+        setFetchMeta({
+          source: response.headers.get("x-pricing-source") || undefined,
+          snapshotId: response.headers.get("x-pricing-snapshot-id") || undefined,
+          ageMs: response.headers.get("x-pricing-age-ms") || undefined,
+        });
         return response.json();
       })
-      .then((data: NormalizedPricing) => setPricing(data))
-      .catch(() => setError("Failed to fetch pricing data."))
+      .then((data: NormalizedPricing) => {
+        setPricing(data);
+        setSelectedModelName(data.models[0]?.modelName || null);
+      })
+      .catch((payload) => setError(getErrorMessage(payload, "Failed to fetch pricing data.")))
       .finally(() => setLoading(false));
   }, [selectedServer]);
 
@@ -123,6 +155,8 @@ export default function PricingPage() {
       if (!showFixed && model.pricingMode === "fixed") return false;
       if (selectedGroups.size > 0 && !model.enableGroups.some((group) => selectedGroups.has(group))) return false;
       if (search && !model.modelName.toLowerCase().includes(search.toLowerCase())) return false;
+      if (endpointFilter && !model.supportedEndpoints.includes(endpointFilter)) return false;
+      if (groupCountFilter && model.enableGroups.length < Number(groupCountFilter)) return false;
       return true;
     });
 
@@ -145,7 +179,13 @@ export default function PricingPage() {
     });
 
     return filtered;
-  }, [pricing, search, selectedGroups, showFixed, showRequestScaled, showToken, sortDir, sortKey]);
+  }, [endpointFilter, groupCountFilter, pricing, search, selectedGroups, showFixed, showRequestScaled, showToken, sortDir, sortKey]);
+
+  const selectedModel = filteredModels.find((model) => model.modelName === selectedModelName) || filteredModels[0] || null;
+  const endpointOptions = useMemo(
+    () => Array.from(new Set(pricing?.models.flatMap((model) => model.supportedEndpoints) || [])).sort((left, right) => left.localeCompare(right)),
+    [pricing],
+  );
 
   function toggleSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -154,6 +194,22 @@ export default function PricingPage() {
     }
     setSortKey(nextKey);
     setSortDir("asc");
+  }
+
+  function exportCsv() {
+    const csv = buildCsv(
+      ["model", "mode", "input_per_1m", "output_per_1m", "request_price", "groups", "endpoints"],
+      filteredModels.map((model) => [
+        model.modelName,
+        model.pricingMode,
+        model.inputPricePer1M,
+        model.outputPricePer1M,
+        model.requestPrice,
+        model.enableGroups.join("|"),
+        model.supportedEndpoints.join("|"),
+      ]),
+    );
+    triggerCsvDownload(`pricing-${selectedServer || "server"}.csv`, csv);
   }
 
   return (
@@ -195,6 +251,15 @@ export default function PricingPage() {
           ))}
         </select>
         <input className="search-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search model name" />
+        <select value={endpointFilter} onChange={(event) => setEndpointFilter(event.target.value)}>
+          <option value="">All endpoints</option>
+          {endpointOptions.map((endpoint) => (
+            <option key={endpoint} value={endpoint}>
+              {endpoint}
+            </option>
+          ))}
+        </select>
+        <input value={groupCountFilter} onChange={(event) => setGroupCountFilter(event.target.value)} placeholder="Min group count" inputMode="numeric" />
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input type="checkbox" checked={showToken} onChange={(event) => setShowToken(event.target.checked)} /> Token
         </label>
@@ -204,6 +269,16 @@ export default function PricingPage() {
         <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <input type="checkbox" checked={showFixed} onChange={(event) => setShowFixed(event.target.checked)} /> Fixed
         </label>
+        <button className="btn btn-ghost" onClick={exportCsv} disabled={!pricing}>
+          Export CSV
+        </button>
+      </div>
+
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card-title" style={{ marginBottom: 8 }}>How Pricing Works</div>
+        <div className="card-subtitle">
+          `request_scaled` means the server charges on request-equivalent quota, while `token` mode follows normalized token math. Use group filters to compare the same model across single-group and chain-capable servers.
+        </div>
       </div>
 
       {currentServer?.notes ? (
@@ -242,7 +317,8 @@ export default function PricingPage() {
       {error ? <div className="empty-state"><div className="empty-icon">!</div><p>{error}</p></div> : null}
 
       {!loading && pricing ? (
-        <div className="table-wrapper">
+        <>
+          <div className="table-wrapper">
           <table>
             <thead>
               <tr>
@@ -266,7 +342,7 @@ export default function PricingPage() {
               ) : filteredModels.map((model) => {
                 const snapshots = resolveSnapshots(model, selectedGroups);
                 return (
-                  <tr key={model.modelName}>
+                  <tr key={model.modelName} onClick={() => setSelectedModelName(model.modelName)} style={{ cursor: "pointer" }}>
                     <td>{model.modelName}</td>
                     <td><span className="badge badge-accent">{modeLabel(model.pricingMode)}</span></td>
                     <td>{priceRange(snapshots.length ? snapshots.map((snapshot) => snapshot.inputPricePer1M) : [model.inputPricePer1M])}</td>
@@ -297,7 +373,48 @@ export default function PricingPage() {
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+          <div className="lab-panel" style={{ marginTop: 16 }}>
+            <div className="card-title" style={{ marginBottom: 10 }}>Pricing Drilldown</div>
+            {!selectedModel ? (
+              <div className="card-subtitle">Select a model row to inspect ratios, group snapshots, and current snapshot metadata.</div>
+            ) : (
+              <div className="lab-stack">
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span className="badge badge-cyan">{selectedModel.modelName}</span>
+                  <span className="badge badge-group">{modeLabel(selectedModel.pricingMode)}</span>
+                  {fetchMeta.snapshotId ? <span className="badge badge-group">snapshot #{fetchMeta.snapshotId}</span> : null}
+                  {fetchMeta.source ? <span className="badge badge-group">{fetchMeta.source}</span> : null}
+                </div>
+                <div className="stats-row" style={{ marginBottom: 0 }}>
+                  <div className="stat-card">
+                    <div className="stat-label">Model Ratio</div>
+                    <div className="stat-value">{selectedModel.modelRatio}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Completion Ratio</div>
+                    <div className="stat-value">{selectedModel.completionRatio}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Cache Ratio</div>
+                    <div className="stat-value">{selectedModel.cacheRatio ?? "-"}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Model Price</div>
+                    <div className="stat-value">{formatPrice(selectedModel.modelPrice)}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {Object.values(selectedModel.groupPrices || {}).map((group) => (
+                    <span key={group.groupName} className="badge badge-group">
+                      {group.groupName}: {formatPrice(group.inputPricePer1M || group.requestPrice)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
       ) : null}
 
       {pricing ? (

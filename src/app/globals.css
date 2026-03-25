@@ -176,7 +176,7 @@ html, body {
   margin-bottom: 20px;
 }
 
-select, textarea, input[type="text"], input[type="password"], input[type="number"], input[type="datetime-local"] {
+select, textarea, input[type="text"], input[type="password"], input[type="number"], input[type="datetime-local"], input[type="file"] {
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -409,6 +409,13 @@ tr:hover td {
   letter-spacing: -1px;
 }
 
+.stat-card .stat-note {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* ──── Loading / Empty ──── */
 .loading {
   display: flex;
@@ -534,6 +541,49 @@ tr:hover td {
   margin-top: 24px;
 }
 
+.lab-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.25fr);
+  gap: 16px;
+}
+
+.lab-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.lab-panel {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.64), rgba(15, 23, 42, 0.3));
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+.lab-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.lab-code {
+  min-height: 180px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.lab-warning-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lab-token-stack {
+  display: grid;
+  gap: 14px;
+}
+
 /* ──── Responsive ──── */
 @media (max-width: 768px) {
   .sidebar {
@@ -560,4 +610,6 @@ tr:hover td {
   select, input { width: 100%; min-width: unset; }
 
   .stats-row { grid-template-columns: 1fr 1fr; }
+  .lab-grid { grid-template-columns: 1fr; }
+  .lab-result-grid { grid-template-columns: 1fr; }
 }

@@ -14,6 +14,7 @@ Supports:
 import subprocess
 import sys
 import json
+import platform
 from pathlib import Path
 from datetime import datetime
 
@@ -88,14 +89,19 @@ def run_tests(cmd: list, cwd: Path) -> dict:
     }
     
     try:
+        normalized_cmd = list(cmd)
+        if platform.system() == "Windows" and normalized_cmd and normalized_cmd[0] in ["npm", "npx"]:
+            normalized_cmd[0] = f"{normalized_cmd[0]}.cmd"
+
         proc = subprocess.run(
-            cmd,
+            normalized_cmd,
             cwd=str(cwd),
             capture_output=True,
             text=True,
             encoding='utf-8',
             errors='replace',
-            timeout=300  # 5 min timeout for tests
+            timeout=300,  # 5 min timeout for tests
+            shell=platform.system() == "Windows"
         )
         
         result["output"] = proc.stdout[:3000] if proc.stdout else ""

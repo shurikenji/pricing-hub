@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { buildHeaders, joinUrl } from "@/lib/adapters/helpers";
+import { apiError } from "@/lib/api-response";
 import { getAdapter } from "@/lib/adapters";
+import { buildHeaders, joinUrl } from "@/lib/adapters/helpers";
+import { consumeRateLimit, getClientIdentifier } from "@/lib/rate-limit";
+import { getServerCapability, matchModelsByGroups, normalizeSelectedGroups } from "@/lib/server-capabilities";
 import { getServer } from "@/lib/servers";
 
 function normalizeGroups(raw: Record<string, unknown>): string[] {
@@ -18,7 +21,7 @@ function normalizeGroups(raw: Record<string, unknown>): string[] {
   return [];
 }
 
-function buildUpdatePayload(type: string, raw: Record<string, unknown>, groups: string[]) {
+function buildUpdatePayload(updateMode: "newapi_put" | "rixapi_put" | "custom", raw: Record<string, unknown>, groups: string[]) {
   const joined = groups.join(",");
   const remainQuota =
     typeof raw.remain_quota === "number"
@@ -27,7 +30,7 @@ function buildUpdatePayload(type: string, raw: Record<string, unknown>, groups: 
         ? raw.remainQuota
         : 0;
 
-  if (type === "rixapi") {
+  if (updateMode === "rixapi_put") {
     return {
       id: raw.id,
       remain_quota: remainQuota,
@@ -57,48 +60,66 @@ function buildUpdatePayload(type: string, raw: Record<string, unknown>, groups: 
     };
   }
 
-  return {
-    id: raw.id,
-    remain_quota: remainQuota,
-    name: raw.name,
-    group: joined,
-    selected_groups: groups.length > 1 ? groups : undefined,
-    expired_time: raw.expired_time ?? -1,
-    unlimited_quota: raw.unlimited_quota ?? false,
-    model_limits_enabled: raw.model_limits_enabled ?? false,
-    model_limits: raw.model_limits ?? "",
-    allow_ips: raw.allow_ips ?? "",
-    key: raw.key,
-    user_id: raw.user_id,
-    created_time: raw.created_time,
-    updated_time: raw.updated_time,
-    status: raw.status,
-    is_active: raw.is_active,
-  };
+  if (updateMode === "newapi_put") {
+    return {
+      id: raw.id,
+      remain_quota: remainQuota,
+      name: raw.name,
+      group: joined,
+      selected_groups: groups.length > 1 ? groups : undefined,
+      expired_time: raw.expired_time ?? -1,
+      unlimited_quota: raw.unlimited_quota ?? false,
+      model_limits_enabled: raw.model_limits_enabled ?? false,
+      model_limits: raw.model_limits ?? "",
+      allow_ips: raw.allow_ips ?? "",
+      key: raw.key,
+      user_id: raw.user_id,
+      created_time: raw.created_time,
+      updated_time: raw.updated_time,
+      status: raw.status,
+      is_active: raw.is_active,
+    };
+  }
+
+  return null;
+}
+
+function enforceKeyRateLimit(request: Request, action: "resolve" | "update") {
+  const ip = getClientIdentifier(request);
+  const bucket = consumeRateLimit(`keys:${action}:${ip}`, action === "resolve" ? 30 : 20, 60_000);
+  return bucket.allowed ? null : apiError("RATE_LIMITED", "Too many key operations. Please retry shortly.", 429);
 }
 
 export async function POST(request: Request) {
+  const rateLimited = enforceKeyRateLimit(request, "resolve");
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const body = (await request.json()) as { serverId?: string; apiKey?: string };
     if (!body.serverId || !body.apiKey) {
-      return NextResponse.json({ error: "Missing serverId or apiKey" }, { status: 400 });
+      return apiError("KEY_RESOLVE_INPUT_REQUIRED", "Missing serverId or apiKey", 400);
     }
 
     const config = getServer(body.serverId);
     if (!config) {
-      return NextResponse.json({ error: "Server not found" }, { status: 404 });
+      return apiError("SERVER_NOT_FOUND", "Server not found", 404);
     }
     if (!config.authToken || !config.authUserValue) {
-      return NextResponse.json({ error: "Server admin credentials are not configured." }, { status: 400 });
+      return apiError("SERVER_ADMIN_CREDS_MISSING", "Server admin credentials are not configured.", 400);
     }
 
+    const capability = getServerCapability(config);
     const adapter = getAdapter(config);
     const token = await adapter.searchToken(config, body.apiKey);
     if (!token) {
-      return NextResponse.json({ error: "API key not found on this server." }, { status: 404 });
+      return apiError("API_KEY_NOT_FOUND", "API key not found on this server.", 404);
     }
 
     const pricing = await adapter.fetchPricing(config);
+    const currentGroups = normalizeSelectedGroups(normalizeGroups(token.raw), capability.groupSelectionMode);
+    const availableModelCount = matchModelsByGroups(pricing.models, currentGroups, capability.groupMatchMode).length;
     return NextResponse.json({
       token: {
         id: token.id,
@@ -106,43 +127,62 @@ export async function POST(request: Request) {
         key: token.key,
         remainQuota: token.remainQuota,
         usedQuota: token.usedQuota,
-        currentGroups: normalizeGroups(token.raw),
+        currentGroups,
       },
       availableGroups: pricing.groups,
-      supportsGroupChain: config.supportsGroupChain,
+      supportsGroupChain: capability.groupSelectionMode !== "single",
+      selectionMode: capability.groupSelectionMode,
+      matchMode: capability.groupMatchMode,
+      availableModelCount,
     });
   } catch (error) {
     console.error("Key resolve error:", error);
-    return NextResponse.json({ error: "Failed to resolve API key" }, { status: 502 });
+    return apiError("KEY_RESOLVE_FAILED", "Failed to resolve API key", 502);
   }
 }
 
 export async function PUT(request: Request) {
+  const rateLimited = enforceKeyRateLimit(request, "update");
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const body = (await request.json()) as { serverId?: string; apiKey?: string; groups?: string[] };
     if (!body.serverId || !body.apiKey || !Array.isArray(body.groups) || body.groups.length === 0) {
-      return NextResponse.json({ error: "Missing serverId, apiKey, or groups" }, { status: 400 });
+      return apiError("KEY_UPDATE_INPUT_REQUIRED", "Missing serverId, apiKey, or groups", 400);
     }
 
     const config = getServer(body.serverId);
     if (!config) {
-      return NextResponse.json({ error: "Server not found" }, { status: 404 });
+      return apiError("SERVER_NOT_FOUND", "Server not found", 404);
     }
     if (!config.authToken || !config.authUserValue) {
-      return NextResponse.json({ error: "Server admin credentials are not configured." }, { status: 400 });
+      return apiError("SERVER_ADMIN_CREDS_MISSING", "Server admin credentials are not configured.", 400);
     }
-    if (!config.supportsGroupChain && body.groups.length > 1) {
-      return NextResponse.json({ error: "This server allows only one group." }, { status: 400 });
+
+    const capability = getServerCapability(config);
+    const groups = normalizeSelectedGroups(body.groups, capability.groupSelectionMode);
+    if (capability.groupSelectionMode === "single" && body.groups.length > 1) {
+      return apiError("GROUP_SELECTION_INVALID", "This server allows only one group.", 400);
     }
 
     const adapter = getAdapter(config);
     const token = await adapter.searchToken(config, body.apiKey);
     if (!token?.raw) {
-      return NextResponse.json({ error: "API key not found on this server." }, { status: 404 });
+      return apiError("API_KEY_NOT_FOUND", "API key not found on this server.", 404);
     }
 
-    const payload = buildUpdatePayload(config.type, token.raw, body.groups);
-    const updateRes = await fetch(joinUrl(config.baseUrl, "/api/token/"), {
+    const payload = buildUpdatePayload(capability.tokenUpdateMode, token.raw, groups);
+    if (!payload) {
+      return apiError(
+        "TOKEN_UPDATE_UNSUPPORTED",
+        "This server is configured with a custom token update mode and needs an explicit adapter override.",
+        400,
+      );
+    }
+
+    const updateRes = await fetch(joinUrl(config.baseUrl, config.tokenUpdatePath, "/api/token/"), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -154,19 +194,22 @@ export async function PUT(request: Request) {
 
     const updatePayload = await updateRes.json().catch(() => null);
     if (!updateRes.ok || !updatePayload?.success) {
-      return NextResponse.json(
-        { error: updatePayload?.message || `Update failed with status ${updateRes.status}` },
-        { status: 502 },
+      return apiError(
+        "TOKEN_UPDATE_FAILED",
+        (updatePayload && typeof updatePayload.message === "string" ? updatePayload.message : null) || `Update failed with status ${updateRes.status}`,
+        502,
       );
     }
 
     return NextResponse.json({
       success: true,
-      currentGroups: body.groups,
+      currentGroups: groups,
       tokenName: token.name,
+      selectionMode: capability.groupSelectionMode,
+      matchMode: capability.groupMatchMode,
     });
   } catch (error) {
     console.error("Key update error:", error);
-    return NextResponse.json({ error: "Failed to update API key groups" }, { status: 502 });
+    return apiError("KEY_UPDATE_FAILED", "Failed to update API key groups", 502);
   }
 }

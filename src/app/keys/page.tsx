@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { getErrorMessage } from "@/lib/error-utils";
 import type { KeyResolveResponse, NormalizedPricing, PricingMode } from "@/lib/types";
 
 interface ServerOption {
@@ -24,10 +25,11 @@ function formatPrice(value: number | undefined) {
 }
 
 export default function KeysPage() {
+  const initialParams = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const [servers, setServers] = useState<ServerOption[]>([]);
-  const [serverId, setServerId] = useState("");
+  const [serverId, setServerId] = useState(initialParams.get("server") || "");
   const [pricing, setPricing] = useState<NormalizedPricing | null>(null);
-  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set((initialParams.get("groups") || "").split(",").filter(Boolean)));
   const [loadingPricing, setLoadingPricing] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [resolving, setResolving] = useState(false);
@@ -42,10 +44,18 @@ export default function KeysPage() {
       .then((data: ServerOption[]) => {
         setServers(data);
         if (data.length > 0) {
-          setServerId(data[0].id);
+          setServerId((current) => current || data[0].id);
         }
       });
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (serverId) params.set("server", serverId);
+    if (selectedGroups.size > 0) params.set("groups", Array.from(selectedGroups).join(","));
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `?${query}` : window.location.pathname);
+  }, [selectedGroups, serverId]);
 
   useEffect(() => {
     if (!serverId) return;
@@ -95,7 +105,7 @@ export default function KeysPage() {
 
     if (!response.ok) {
       setResolveResult(null);
-      setError(payload.error || "Failed to resolve API key.");
+      setError(getErrorMessage(payload, "Failed to resolve API key."));
       setResolving(false);
       return;
     }
@@ -123,7 +133,7 @@ export default function KeysPage() {
     const payload = await response.json();
 
     if (!response.ok) {
-      setError(payload.error || "Failed to update API key groups.");
+      setError(getErrorMessage(payload, "Failed to update API key groups."));
       setSaving(false);
       return;
     }
@@ -146,8 +156,13 @@ export default function KeysPage() {
   const availableModels = useMemo(() => {
     if (!pricing) return [];
     if (selectedGroups.size === 0) return pricing.models;
-    return pricing.models.filter((model) => model.enableGroups.some((group) => selectedGroups.has(group)));
-  }, [pricing, selectedGroups]);
+    const matchMode = resolveResult?.matchMode || "union";
+    return pricing.models.filter((model) =>
+      matchMode === "intersection"
+        ? Array.from(selectedGroups).every((group) => model.enableGroups.includes(group))
+        : model.enableGroups.some((group) => selectedGroups.has(group)),
+    );
+  }, [pricing, resolveResult, selectedGroups]);
 
   const groupModelCounts = useMemo(() => {
     if (!pricing) return {} as Record<string, number>;
@@ -166,6 +181,13 @@ export default function KeysPage() {
         <p className="page-description">
           Resolve a key on the selected server, inspect current groups, and update group access without exposing admin credentials.
         </p>
+      </div>
+
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card-title" style={{ marginBottom: 8 }}>How Group Matching Works</div>
+        <div className="card-subtitle">
+          Some servers allow only one group, while others allow chains or multi-group selection. `matchMode=union` shows models available in any selected group; `matchMode=intersection` shows only models present in all selected groups.
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 24 }}>
@@ -198,6 +220,8 @@ export default function KeysPage() {
           <span style={{ color: "var(--text-secondary)", fontSize: 13 }}>
             {supportsChain ? "Multi-group chain enabled for this server." : "Single-group selection only for this server."}
           </span>
+          {resolveResult ? <span className="badge badge-group">{resolveResult.selectionMode}</span> : null}
+          {resolveResult ? <span className="badge badge-group">{resolveResult.matchMode}</span> : null}
         </div>
         {error ? <p style={{ marginTop: 12, color: "var(--red)" }}>{error}</p> : null}
         {message ? <p style={{ marginTop: 12, color: "var(--green)" }}>{message}</p> : null}
