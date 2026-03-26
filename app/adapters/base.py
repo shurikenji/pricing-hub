@@ -267,3 +267,20 @@ class BaseAdapter(ABC):
                 except Exception as exc:
                     logger.warning("search_token attempt failed: %s", exc)
         return None
+
+    async def update_token(self, server: dict, payload: dict) -> dict:
+        """Update token metadata using the upstream token update endpoint."""
+        url = join_url(
+            server["base_url"],
+            server.get("token_update_path") or "/api/token/",
+        )
+        headers = {
+            "Content-Type": "application/json",
+            **build_headers(server),
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.put(url, json=payload, headers=headers, timeout=_TIMEOUT) as resp:
+                data = await resp.json()
+                if isinstance(data, dict):
+                    return data
+                return {"success": False, "message": f"Unexpected response with status {resp.status}"}

@@ -126,3 +126,18 @@ async def get_latest_sync_map() -> dict[str, dict]:
         if item and item["server_id"] not in latest:
             latest[item["server_id"]] = item
     return latest
+
+
+async def get_recent_sync_logs(limit: int = 10) -> list[dict]:
+    db = await get_db()
+    cursor = await db.execute(
+        """
+        SELECT id, server_id, status, model_count, group_count, duration_ms,
+               error_message, created_at
+        FROM sync_log
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+    return [_row_to_dict(row) for row in await cursor.fetchall()]

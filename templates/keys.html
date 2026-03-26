@@ -1,15 +1,14 @@
 {% extends "base.html" %}
-{% block title %}API Key Manager — Pricing Hub{% endblock %}
+{% block title %}API Key Manager - Pricing Hub{% endblock %}
 
 {% block content %}
 <div x-data="keysApp()" x-cloak>
     <h1 class="text-2xl font-bold mb-6">API Key Manager</h1>
 
-    <!-- Input -->
     <div class="card bg-base-100 shadow-sm mb-6">
         <div class="card-body p-4">
             <div class="flex flex-col md:flex-row gap-3">
-                <select class="select select-bordered select-sm flex-shrink-0" x-model="serverId">
+                <select class="select select-bordered select-sm flex-shrink-0" x-model="serverId" @change="resetState()">
                     <option value="">Select server</option>
                     {% for s in servers %}
                     <option value="{{ s.id }}">{{ s.name }}</option>
@@ -24,45 +23,75 @@
         </div>
     </div>
 
-    <!-- Error -->
     <div x-show="error" class="alert alert-error mb-4">
         <span x-text="error"></span>
     </div>
+    <div x-show="message" class="alert alert-success mb-4">
+        <span x-text="message"></span>
+    </div>
 
-    <!-- Key info -->
     <template x-if="keyInfo">
-        <div class="card bg-base-100 shadow-sm fade-in">
-            <div class="card-body p-4">
-                <h2 class="card-title text-lg">Key Information</h2>
+        <div class="space-y-6">
+            <div class="card bg-base-100 shadow-sm fade-in">
+                <div class="card-body p-4">
+                    <h2 class="card-title text-lg">Key Information</h2>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                         <div class="stat bg-base-200 rounded-lg">
                             <div class="stat-title">Token Name</div>
-                            <div class="stat-value text-lg" x-text="keyInfo.name || 'Unknown'"></div>
+                            <div class="stat-value text-lg" x-text="keyInfo.token.name || 'Unknown'"></div>
                         </div>
-                    </div>
-                    <div>
                         <div class="stat bg-base-200 rounded-lg">
                             <div class="stat-title">Remaining Quota</div>
-                            <div class="stat-value text-lg text-success" x-text="keyInfo.remain_quota != null ? (keyInfo.remain_quota / 500000).toFixed(2) + ' $' : 'N/A'"></div>
+                            <div class="stat-value text-lg text-success" x-text="formatQuota(keyInfo.token.remain_quota)"></div>
+                        </div>
+                        <div class="stat bg-base-200 rounded-lg">
+                            <div class="stat-title">Matching Models</div>
+                            <div class="stat-value text-lg" x-text="keyInfo.available_model_count || 0"></div>
                         </div>
                     </div>
-                </div>
 
-                <!-- Current groups -->
-                <div class="mt-4">
-                    <h3 class="text-sm font-semibold mb-2">Current Group(s)</h3>
-                    <div class="flex flex-wrap gap-2">
-                        <template x-for="(g, i) in keyInfo.display_groups" :key="i">
-                            <span class="badge badge-primary badge-lg" x-text="g"></span>
-                        </template>
+                    <div class="mt-4">
+                        <h3 class="text-sm font-semibold mb-2">Current Group(s)</h3>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="(group, index) in keyInfo.token.display_groups" :key="index">
+                                <span class="badge badge-primary badge-lg" x-text="group"></span>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 text-sm text-base-content/60">
+                        <span x-text="keyInfo.selection_mode === 'multiple' ? 'This server supports multi-group selection.' : 'This server allows only one group.'"></span>
                     </div>
                 </div>
+            </div>
 
-                <!-- Available models count -->
-                <div class="mt-4 text-sm text-base-content/60">
-                    <p>This key has access to models in the group(s) listed above.</p>
+            <div class="card bg-base-100 shadow-sm fade-in">
+                <div class="card-body p-4">
+                    <div class="flex justify-between items-center gap-3 mb-4">
+                        <div>
+                            <h2 class="card-title text-lg">Update Groups</h2>
+                            <p class="text-sm text-base-content/60">Choose one or more groups, then save the new assignment.</p>
+                        </div>
+                        <button class="btn btn-primary btn-sm" @click="saveGroups()" :disabled="saving || selectedGroups.length === 0">
+                            <span x-show="saving" class="loading loading-spinner loading-xs"></span>
+                            Save Groups
+                        </button>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2">
+                        <template x-for="group in keyInfo.available_groups" :key="group.name">
+                            <button
+                                type="button"
+                                class="btn btn-sm"
+                                :class="isSelected(group.name) ? 'btn-primary' : 'btn-outline'"
+                                @click="toggleGroup(group.name)"
+                            >
+                                <span x-text="group.display_name"></span>
+                                <span class="opacity-70" x-text="'(' + group.ratio + 'x)'"></span>
+                            </button>
+                        </template>
+                    </div>
                 </div>
             </div>
         </div>
@@ -74,13 +103,50 @@
 <script>
 function keysApp() {
     return {
-        serverId: '', apiKey: '', loading: false, error: '',
+        serverId: '',
+        apiKey: '',
+        loading: false,
+        saving: false,
+        error: '',
+        message: '',
         keyInfo: null,
+        selectedGroups: [],
+
+        resetState() {
+            this.error = '';
+            this.message = '';
+            this.keyInfo = null;
+            this.selectedGroups = [];
+        },
+
+        formatQuota(value) {
+            if (value == null) return 'N/A';
+            return (Number(value) / 500000).toFixed(2) + ' $';
+        },
+
+        isSelected(groupName) {
+            return this.selectedGroups.includes(groupName);
+        },
+
+        toggleGroup(groupName) {
+            if (!this.keyInfo) return;
+            if (this.keyInfo.selection_mode !== 'multiple') {
+                this.selectedGroups = [groupName];
+                return;
+            }
+            if (this.isSelected(groupName)) {
+                this.selectedGroups = this.selectedGroups.filter((value) => value !== groupName);
+            } else {
+                this.selectedGroups = [...this.selectedGroups, groupName];
+            }
+        },
 
         async resolveKey() {
             this.loading = true;
             this.error = '';
+            this.message = '';
             this.keyInfo = null;
+            this.selectedGroups = [];
             try {
                 const resp = await fetch('/api/keys/resolve', {
                     method: 'POST',
@@ -88,12 +154,50 @@ function keysApp() {
                     body: JSON.stringify({ server_id: this.serverId, api_key: this.apiKey }),
                 });
                 const data = await resp.json();
-                if (data.error) this.error = data.error;
-                else this.keyInfo = data;
+                if (data.error) {
+                    this.error = data.error;
+                } else {
+                    this.keyInfo = data;
+                    this.selectedGroups = [...(data.token.groups || [])];
+                }
             } catch (e) {
                 this.error = 'Request failed: ' + e.message;
             }
             this.loading = false;
+        },
+
+        async saveGroups() {
+            if (!this.selectedGroups.length) {
+                this.error = 'Select at least one group before saving.';
+                return;
+            }
+
+            this.saving = true;
+            this.error = '';
+            this.message = '';
+            try {
+                const resp = await fetch('/api/keys', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        server_id: this.serverId,
+                        api_key: this.apiKey,
+                        groups: this.selectedGroups,
+                    }),
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    this.error = data.error;
+                } else if (this.keyInfo) {
+                    this.keyInfo.token.groups = [...data.groups];
+                    this.keyInfo.token.display_groups = [...data.display_groups];
+                    this.keyInfo.available_model_count = data.available_model_count || 0;
+                    this.message = 'Updated groups for ' + (data.token_name || this.keyInfo.token.name || 'token') + '.';
+                }
+            } catch (e) {
+                this.error = 'Request failed: ' + e.message;
+            }
+            this.saving = false;
         }
     };
 }

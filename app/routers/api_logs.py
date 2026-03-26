@@ -1,4 +1,4 @@
-"""JSON API: /api/logs — proxy log queries to upstream servers."""
+"""JSON API: /api/logs - proxy log queries to upstream servers."""
 from __future__ import annotations
 
 from fastapi import APIRouter
@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.adapters import get_adapter
+from app.cache import fetch_pricing
+from app.log_pricing import enrich_logs_payload
 from db.queries.servers import get_server
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -37,7 +39,6 @@ async def api_logs(body: LogRequest):
     resolved_by_key = False
     resolved_token = None
 
-    # If API key provided, resolve token name first
     if body.api_key and not body.token_name:
         if not server.get("auth_token") or not server.get("auth_user_value"):
             return JSONResponse(
@@ -64,8 +65,15 @@ async def api_logs(body: LogRequest):
 
     try:
         data = await adapter.fetch_logs(server, params)
-        data["resolved_by_key"] = resolved_by_key
-        data["resolved_token"] = resolved_token
-        return data
+        pricing = await fetch_pricing(server["id"])
+        enriched = enrich_logs_payload(data, pricing)
+        if isinstance(enriched, list):
+            enriched = {
+                "items": enriched,
+                "available_groups": [],
+            }
+        enriched["resolved_by_key"] = resolved_by_key
+        enriched["resolved_token"] = resolved_token
+        return enriched
     except Exception as exc:
         return JSONResponse({"error": f"Log fetch failed: {exc}"}, status_code=502)

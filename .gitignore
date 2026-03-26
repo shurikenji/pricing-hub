@@ -32,3 +32,5 @@ docs/
 release/
 scripts/
 *.log
+.claude/
+.gitnexus

@@ -43,3 +43,10 @@ async def save_translations(
             (name, server_type, t.get("name_en"), t.get("desc_en"), t.get("category", "Other")),
         )
     await db.commit()
+
+
+async def count_cached_translations() -> int:
+    db = await get_db()
+    cursor = await db.execute("SELECT COUNT(*) FROM translation_cache")
+    row = await cursor.fetchone()
+    return int(row[0]) if row else 0
