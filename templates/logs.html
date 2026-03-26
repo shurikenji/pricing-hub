@@ -2,55 +2,92 @@
 {% block title %}Usage Logs - Pricing Hub{% endblock %}
 
 {% block content %}
-<div x-data="logsApp()" x-cloak>
-    <h1 class="text-2xl font-bold mb-6">Usage Logs</h1>
+<div x-data="logsApp()" x-cloak class="page-stack">
+    <section class="page-head fade-up">
+        <div>
+            <h1 class="page-title">Usage Logs</h1>
+            <p class="page-subtitle">Review usage history and export pricing-aware cost estimates.</p>
+        </div>
+        <div class="page-actions">
+            <button class="button-secondary" @click="exportCsv()" :disabled="!logs.length">Export CSV</button>
+            <span class="top-badge" x-text="serverId ? 'Server selected' : 'Awaiting server'"></span>
+        </div>
+    </section>
 
-    <div class="card bg-base-100 shadow-sm mb-6">
-        <div class="card-body p-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                <select class="select select-bordered select-sm" x-model="serverId" @change="onServerChanged()">
+    <section class="shell-panel toolbar-panel fade-up">
+        <div class="panel-heading">
+            <div>
+                <h2 class="panel-title">Search logs</h2>
+                <p class="panel-copy">Choose a server to load logs. API key or token name is optional and only used to narrow results.</p>
+            </div>
+            <div class="controls-row">
+                <button class="button-ghost" :disabled="page <= 1" @click="page--; fetchLogs()">Prev</button>
+                <button class="button" @click="fetchLogs()" :disabled="loading || !serverId">
+                    <span x-text="loading ? 'Searching...' : 'Search logs'"></span>
+                </button>
+                <button class="button-ghost" @click="page++; fetchLogs()" :disabled="loading || !serverId">Next</button>
+            </div>
+        </div>
+
+        <div class="toolbar-grid">
+            <div>
+                <label class="field-label">Server</label>
+                <select class="select-control" x-model="serverId" @change="onServerChanged()">
                     <option value="">Select server</option>
                     {% for s in servers %}
                     <option value="{{ s.id }}">{{ s.name }}</option>
                     {% endfor %}
                 </select>
-                <input type="text" placeholder="API Key (sk-...)" class="input input-bordered input-sm" x-model="apiKey">
-                <input type="text" placeholder="Model filter" class="input input-bordered input-sm" x-model="modelName">
-                <button class="btn btn-primary btn-sm" @click="fetchLogs()" :disabled="loading || !serverId">
-                    <span x-show="loading" class="loading loading-spinner loading-xs"></span>
-                    Search Logs
-                </button>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
-                <input type="text" placeholder="Token name" class="input input-bordered input-sm" x-model="tokenName">
-                <select class="select select-bordered select-sm" x-model="group">
+            <div>
+                <label class="field-label">API key</label>
+                <input type="text" placeholder="Optional API key to auto-resolve token" class="control code-text" x-model="apiKey">
+            </div>
+            <div>
+                <label class="field-label">Model name</label>
+                <input type="text" placeholder="Filter model identifier" class="control code-text" x-model="modelName">
+            </div>
+            <div>
+                <label class="field-label">Group</label>
+                <select class="select-control" x-model="group">
                     <option value="">All groups</option>
                     <template x-for="item in groups" :key="item.name">
-                        <option :value="item.name" x-text="item.display_name + ' (' + item.ratio + 'x)'"></option>
+                        <option :value="item.name" x-text="item.display_name + ' (' + formatRatio(item.ratio) + 'x)'"></option>
                     </template>
                 </select>
-                <div class="flex gap-2">
-                    <input type="date" class="input input-bordered input-sm flex-1" x-model="startDate">
-                    <input type="date" class="input input-bordered input-sm flex-1" x-model="endDate">
-                </div>
             </div>
         </div>
-    </div>
+    </section>
 
-    <div x-show="error" class="alert alert-error mb-4">
-        <span x-text="error"></span>
-    </div>
-    <div x-show="resolvedToken" class="alert alert-info mb-4">
-        <span>Resolved token: <strong x-text="resolvedToken"></strong></span>
-    </div>
-
-    <div x-show="logs.length > 0">
-        <div class="flex justify-between items-center mb-2">
-            <span class="text-sm text-base-content/60"><span x-text="total"></span> records</span>
-            <button class="btn btn-sm btn-outline" @click="exportCsv()">Export CSV</button>
+    <div x-show="error" class="status-banner is-error fade-up">
+        <span class="status-banner__dot"></span>
+        <div>
+            <strong>Log search failed.</strong>
+            <div class="panel-copy mt-1" x-text="error"></div>
         </div>
-        <div class="overflow-x-auto">
-            <table class="table table-xs table-zebra">
+    </div>
+
+    <div x-show="resolvedToken" class="status-banner is-info fade-up">
+        <span class="status-banner__dot"></span>
+        <div>
+            <strong>Resolved token:</strong>
+            <div class="panel-copy mt-1" x-text="resolvedToken"></div>
+        </div>
+    </div>
+
+    <section x-show="logs.length > 0" class="shell-table fade-up">
+        <div class="panel-heading">
+            <div>
+                <h2 class="panel-title">Results</h2>
+                <p class="panel-copy">Estimated cost is enriched on the server when pricing can be matched.</p>
+            </div>
+            <div class="controls-row">
+                <span class="tag">Page <span x-text="page"></span></span>
+                <span class="tag is-accent"><span x-text="total"></span> records</span>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
                 <thead>
                     <tr>
                         <th>Time</th>
@@ -59,28 +96,33 @@
                         <th>Token</th>
                         <th>Prompt</th>
                         <th>Completion</th>
-                        <th>Est. Cost</th>
+                        <th>Est. cost</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <template x-for="log in logs" :key="log.id || log.created_at">
+                    <template x-for="(log, index) in logs" :key="logRowKey(log, index)">
                         <tr>
-                            <td class="text-xs whitespace-nowrap" x-text="formatTime(log.created_at)"></td>
-                            <td class="font-mono text-xs" x-text="log.model_name || log.model"></td>
-                            <td class="text-xs" x-text="log.matched_group_display_name || log.group || '-'"></td>
-                            <td class="text-xs" x-text="log.token_name || '-'"></td>
-                            <td class="text-xs" x-text="(log.prompt_tokens || 0).toLocaleString()"></td>
-                            <td class="text-xs" x-text="(log.completion_tokens || 0).toLocaleString()"></td>
-                            <td class="text-xs font-semibold" x-text="log.estimated_cost_display || '-'"></td>
+                            <td class="whitespace-nowrap" x-text="formatTime(log.created_at)"></td>
+                            <td><span class="code-text text-sm" x-text="log.model_name || log.model"></span></td>
+                            <td x-text="log.matched_group_display_name || log.group || '-'"></td>
+                            <td x-text="log.token_name || '-'"></td>
+                            <td x-text="(log.prompt_tokens || 0).toLocaleString()"></td>
+                            <td x-text="(log.completion_tokens || 0).toLocaleString()"></td>
+                            <td class="font-semibold" x-text="log.estimated_cost_display || '-'"></td>
                         </tr>
                     </template>
                 </tbody>
             </table>
         </div>
-        <div class="flex justify-center gap-2 mt-4">
-            <button class="btn btn-sm" :disabled="page <= 1" @click="page--; fetchLogs()">Prev</button>
-            <span class="btn btn-sm btn-ghost" x-text="'Page ' + page"></span>
-            <button class="btn btn-sm" @click="page++; fetchLogs()">Next</button>
+    </section>
+
+    <div x-show="!loading && serverId && logs.length === 0 && !error" class="shell-panel fade-up">
+        <div class="empty-state">
+            <div>
+                <div class="empty-state__icon">Empty</div>
+                <h3 class="panel-title">No logs returned</h3>
+                <p class="panel-copy mt-2">The current filter combination returned no usage rows.</p>
+            </div>
         </div>
     </div>
 </div>
@@ -92,12 +134,9 @@ function logsApp() {
     return {
         serverId: '',
         apiKey: '',
-        tokenName: '',
         modelName: '',
         group: '',
         groups: [],
-        startDate: '',
-        endDate: '',
         page: 1,
         pageSize: 50,
         logs: [],
@@ -110,6 +149,7 @@ function logsApp() {
             this.group = '';
             this.logs = [];
             this.total = 0;
+            this.page = 1;
             await this.loadGroups();
         },
 
@@ -129,17 +169,19 @@ function logsApp() {
             this.loading = true;
             this.error = '';
             this.resolvedToken = '';
+            if (!this.serverId) {
+                this.error = 'Select a server before searching logs.';
+                this.loading = false;
+                return;
+            }
             const body = {
                 server_id: this.serverId,
                 page: this.page,
                 pageSize: this.pageSize,
             };
             if (this.apiKey) body.api_key = this.apiKey;
-            if (this.tokenName) body.token_name = this.tokenName;
             if (this.modelName) body.model_name = this.modelName;
             if (this.group) body.group = this.group;
-            if (this.startDate) body.start_timestamp = Math.floor(new Date(this.startDate).getTime() / 1000);
-            if (this.endDate) body.end_timestamp = Math.floor(new Date(this.endDate + 'T23:59:59').getTime() / 1000);
 
             try {
                 const resp = await fetch('/api/logs', {
@@ -153,8 +195,8 @@ function logsApp() {
                     this.logs = [];
                 } else {
                     const raw = data.data || data.items || data;
-                    this.logs = Array.isArray(raw) ? raw : (raw.logs || []);
-                    this.total = data.total || this.logs.length;
+                    this.logs = Array.isArray(raw) ? raw : (raw.items || raw.logs || []);
+                    this.total = data.total || raw.total || this.logs.length;
                     this.groups = data.available_groups || this.groups;
                     if (data.resolved_token) this.resolvedToken = data.resolved_token;
                 }
@@ -170,6 +212,21 @@ function logsApp() {
             return new Date(ts).toLocaleString();
         },
 
+        formatRatio(value) {
+            const number = Number(value);
+            if (!Number.isFinite(number)) return '0.00';
+            return number.toFixed(2);
+        },
+
+        logRowKey(log, index) {
+            return [
+                log.id ?? 'no-id',
+                log.token_id ?? 'no-token',
+                log.created_at ?? 'no-time',
+                index,
+            ].join(':');
+        },
+
         exportCsv() {
             if (!this.logs.length) return;
             const headers = ['Time', 'Model', 'Group', 'Token', 'Prompt', 'Completion', 'EstimatedCostUsd'];
@@ -183,7 +240,7 @@ function logsApp() {
                 log.estimated_cost_usd ?? '',
             ]);
             const csv = [headers, ...rows].map((row) => row.join(',')).join('\n');
-            const blob = new Blob([csv], {type: 'text/csv'});
+            const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;

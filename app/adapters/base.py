@@ -28,15 +28,26 @@ def join_url(base_url: str, path: str) -> str:
     return f"{base_url.rstrip('/')}{path if path.startswith('/') else '/' + path}"
 
 
-def build_headers(server: dict, *, override_user: str = "", override_token: str = "") -> dict[str, str]:
+def build_headers(
+    server: dict,
+    *,
+    override_user: str = "",
+    override_token: str = "",
+    include_server_user: bool = False,
+) -> dict[str, str]:
     headers: dict[str, str] = {"Accept": "application/json"}
     mode = server.get("auth_mode") or "header"
     token = override_token or server.get("auth_token") or ""
-    user_value = override_user or server.get("auth_user_value") or ""
+    user_header = str(server.get("auth_user_header") or "").strip()
+    user_value = str(override_user or "").strip()
+    if not user_value and include_server_user:
+        user_value = str(server.get("auth_user_value") or "").strip()
 
     if mode == "header":
-        user_header = server.get("auth_user_header") or "New-Api-User"
-        if user_value:
+        # Do not auto-attach legacy user headers such as New-Api-User for
+        # generic pricing/search requests. Only send a custom user header when
+        # the caller explicitly provides an override, or this endpoint opts in.
+        if user_header and user_value:
             headers[user_header] = user_value
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -216,6 +227,44 @@ class BaseAdapter(ABC):
     async def fetch_pricing(self, server: dict) -> NormalizedPricing:
         ...
 
+    def extract_ratio_hint(self, *texts: object, default: float = 1.0) -> float:
+        return extract_ratio_hint(*texts, default=default)
+
+    def get_groups_path(self, server: dict) -> str:
+        return str(server.get("groups_path") or "/api/user/self/groups").strip()
+
+    def parse_groups(self, data: Any) -> list[dict]:
+        return []
+
+    async def fetch_groups(self, server: dict) -> list[dict]:
+        """Fetch canonical groups using the same flow as shopbot API clients."""
+        path = self.get_groups_path(server)
+        if not path:
+            return []
+
+        url = join_url(server["base_url"], path)
+        headers = build_headers(server, include_server_user=True)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, timeout=_TIMEOUT) as resp:
+                    data = await resp.json()
+        except Exception as exc:
+            logger.warning("fetch_groups failed for %s: %s", server.get("name"), exc)
+            return []
+
+        if not isinstance(data, dict):
+            return []
+        if data.get("success") is False:
+            logger.warning(
+                "fetch_groups upstream rejected %s: %s",
+                server.get("name"),
+                data.get("message") or "unknown error",
+            )
+            return []
+
+        payload = data.get("data", data)
+        return self.parse_groups(payload)
+
     async def fetch_logs(
         self, server: dict, params: dict
     ) -> dict:
@@ -250,7 +299,7 @@ class BaseAdapter(ABC):
             server["base_url"],
             server.get("token_search_path") or "/api/token/search",
         )
-        headers = build_headers(server)
+        headers = build_headers(server, include_server_user=True)
         async with aiohttp.ClientSession() as session:
             for candidate in build_token_search_candidates(api_key):
                 try:
@@ -276,7 +325,7 @@ class BaseAdapter(ABC):
         )
         headers = {
             "Content-Type": "application/json",
-            **build_headers(server),
+            **build_headers(server, include_server_user=True),
         }
         async with aiohttp.ClientSession() as session:
             async with session.put(url, json=payload, headers=headers, timeout=_TIMEOUT) as resp:

@@ -1,100 +1,109 @@
 {% extends "base.html" %}
-{% block title %}API Key Manager - Pricing Hub{% endblock %}
+{% block title %}API Key Center - Pricing Hub{% endblock %}
 
 {% block content %}
-<div x-data="keysApp()" x-cloak>
-    <h1 class="text-2xl font-bold mb-6">API Key Manager</h1>
+<div x-data="keysApp()" x-cloak class="page-stack">
+    <section class="page-head fade-up">
+        <div>
+            <h1 class="page-title">API Key Center</h1>
+            <p class="page-subtitle">Check the current group on a key and switch it using the groups exposed by the selected server.</p>
+        </div>
+    </section>
 
-    <div class="card bg-base-100 shadow-sm mb-6">
-        <div class="card-body p-4">
-            <div class="flex flex-col md:flex-row gap-3">
-                <select class="select select-bordered select-sm flex-shrink-0" x-model="serverId" @change="resetState()">
+    <section class="shell-panel fade-up">
+        <div class="panel-heading">
+            <div>
+                <h2 class="panel-title">Check API key</h2>
+                <p class="panel-copy">Select a server, paste a token, then load only its current group assignment.</p>
+            </div>
+        </div>
+
+        <div class="toolbar-grid">
+            <div>
+                <label class="field-label">Server</label>
+                <select class="select-control" x-model="serverId" @change="resetState()">
                     <option value="">Select server</option>
                     {% for s in servers %}
                     <option value="{{ s.id }}">{{ s.name }}</option>
                     {% endfor %}
                 </select>
-                <input type="text" placeholder="Enter your API key (sk-...)" class="input input-bordered input-sm flex-1" x-model="apiKey">
-                <button class="btn btn-primary btn-sm" @click="resolveKey()" :disabled="loading || !serverId || !apiKey">
-                    <span x-show="loading" class="loading loading-spinner loading-xs"></span>
-                    Resolve Key
+            </div>
+            <div class="lg:col-span-2">
+                <label class="field-label">API key</label>
+                <input type="text" placeholder="Paste token, e.g. sk-..." class="control code-text" x-model="apiKey">
+            </div>
+            <div class="flex items-end">
+                <button class="button w-full" @click="resolveKey()" :disabled="loading || !serverId || !apiKey">
+                    <span x-text="loading ? 'Loading...' : 'Load groups'"></span>
                 </button>
             </div>
         </div>
+    </section>
+
+    <div x-show="error" class="status-banner is-error fade-up">
+        <span class="status-banner__dot"></span>
+        <div>
+            <strong>Request failed.</strong>
+            <div class="panel-copy mt-1" x-text="error"></div>
+        </div>
     </div>
 
-    <div x-show="error" class="alert alert-error mb-4">
-        <span x-text="error"></span>
-    </div>
-    <div x-show="message" class="alert alert-success mb-4">
-        <span x-text="message"></span>
+    <div x-show="message" class="status-banner is-success fade-up">
+        <span class="status-banner__dot"></span>
+        <div>
+            <strong>Update applied.</strong>
+            <div class="panel-copy mt-1" x-text="message"></div>
+        </div>
     </div>
 
     <template x-if="keyInfo">
-        <div class="space-y-6">
-            <div class="card bg-base-100 shadow-sm fade-in">
-                <div class="card-body p-4">
-                    <h2 class="card-title text-lg">Key Information</h2>
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                        <div class="stat bg-base-200 rounded-lg">
-                            <div class="stat-title">Token Name</div>
-                            <div class="stat-value text-lg" x-text="keyInfo.token.name || 'Unknown'"></div>
-                        </div>
-                        <div class="stat bg-base-200 rounded-lg">
-                            <div class="stat-title">Remaining Quota</div>
-                            <div class="stat-value text-lg text-success" x-text="formatQuota(keyInfo.token.remain_quota)"></div>
-                        </div>
-                        <div class="stat bg-base-200 rounded-lg">
-                            <div class="stat-title">Matching Models</div>
-                            <div class="stat-value text-lg" x-text="keyInfo.available_model_count || 0"></div>
-                        </div>
-                    </div>
-
-                    <div class="mt-4">
-                        <h3 class="text-sm font-semibold mb-2">Current Group(s)</h3>
-                        <div class="flex flex-wrap gap-2">
-                            <template x-for="(group, index) in keyInfo.token.display_groups" :key="index">
-                                <span class="badge badge-primary badge-lg" x-text="group"></span>
-                            </template>
-                        </div>
-                    </div>
-
-                    <div class="mt-4 text-sm text-base-content/60">
-                        <span x-text="keyInfo.selection_mode === 'multiple' ? 'This server supports multi-group selection.' : 'This server allows only one group.'"></span>
+        <section class="content-grid xl:grid-cols-[1.05fr_0.95fr] fade-up">
+            <article class="shell-card">
+                <div class="panel-heading">
+                    <div>
+                        <h2 class="panel-title">Current groups</h2>
+                        <p class="panel-copy">These are the groups currently assigned to the key.</p>
                     </div>
                 </div>
-            </div>
 
-            <div class="card bg-base-100 shadow-sm fade-in">
-                <div class="card-body p-4">
-                    <div class="flex justify-between items-center gap-3 mb-4">
-                        <div>
-                            <h2 class="card-title text-lg">Update Groups</h2>
-                            <p class="text-sm text-base-content/60">Choose one or more groups, then save the new assignment.</p>
-                        </div>
-                        <button class="btn btn-primary btn-sm" @click="saveGroups()" :disabled="saving || selectedGroups.length === 0">
-                            <span x-show="saving" class="loading loading-spinner loading-xs"></span>
-                            Save Groups
-                        </button>
+                <div class="chip-cloud">
+                    <template x-for="(group, index) in keyInfo.token.display_groups" :key="index">
+                        <span class="chip is-selected" x-text="group"></span>
+                    </template>
+                </div>
+            </article>
+
+            <article class="shell-card">
+                <div class="panel-heading">
+                    <div>
+                        <h2 class="panel-title">Update groups</h2>
+                        <p class="panel-copy">Choose the target groups below. This follows the same button-based selector used in admin.</p>
                     </div>
+                    <button class="button-secondary" @click="saveGroups()" :disabled="saving || selectedGroups.length === 0">
+                        <span x-text="saving ? 'Saving...' : 'Save groups'"></span>
+                    </button>
+                </div>
 
-                    <div class="flex flex-wrap gap-2">
-                        <template x-for="group in keyInfo.available_groups" :key="group.name">
-                            <button
-                                type="button"
-                                class="btn btn-sm"
-                                :class="isSelected(group.name) ? 'btn-primary' : 'btn-outline'"
-                                @click="toggleGroup(group.name)"
-                            >
-                                <span x-text="group.display_name"></span>
-                                <span class="opacity-70" x-text="'(' + group.ratio + 'x)'"></span>
-                            </button>
+                <div class="shell-panel !p-4 mb-4">
+                    <div class="panel-copy">Selected groups</div>
+                    <div class="chip-cloud mt-3" x-show="selectedGroups.length">
+                        <template x-for="groupName in selectedGroups" :key="groupName + '-selected'">
+                            <span class="chip is-selected" x-text="displayGroupName(groupName)"></span>
                         </template>
                     </div>
+                    <div class="panel-copy mt-3" x-show="!selectedGroups.length">No group selected yet.</div>
                 </div>
-            </div>
-        </div>
+
+                <div class="chip-cloud">
+                    <template x-for="group in keyInfo.available_groups" :key="group.name">
+                        <button type="button" class="chip" :class="isSelected(group.name) ? 'is-selected' : ''" @click="toggleGroup(group.name)">
+                            <span x-text="group.display_name"></span>
+                            <span class="opacity-70" x-text="'(' + formatRatio(group.ratio) + 'x)'"></span>
+                        </button>
+                    </template>
+                </div>
+            </article>
+        </section>
     </template>
 </div>
 {% endblock %}
@@ -119,13 +128,19 @@ function keysApp() {
             this.selectedGroups = [];
         },
 
-        formatQuota(value) {
-            if (value == null) return 'N/A';
-            return (Number(value) / 500000).toFixed(2) + ' $';
-        },
-
         isSelected(groupName) {
             return this.selectedGroups.includes(groupName);
+        },
+
+        displayGroupName(groupName) {
+            const match = (this.keyInfo?.available_groups || []).find((group) => group.name === groupName);
+            return match?.display_name || groupName;
+        },
+
+        formatRatio(value) {
+            const number = Number(value);
+            if (!Number.isFinite(number)) return '0.00';
+            return number.toFixed(2);
         },
 
         toggleGroup(groupName) {
@@ -191,8 +206,7 @@ function keysApp() {
                 } else if (this.keyInfo) {
                     this.keyInfo.token.groups = [...data.groups];
                     this.keyInfo.token.display_groups = [...data.display_groups];
-                    this.keyInfo.available_model_count = data.available_model_count || 0;
-                    this.message = 'Updated groups for ' + (data.token_name || this.keyInfo.token.name || 'token') + '.';
+                    this.message = 'Groups updated successfully.';
                 }
             } catch (e) {
                 this.error = 'Request failed: ' + e.message;

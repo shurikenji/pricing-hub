@@ -85,7 +85,6 @@ class NormalizedPricing(BaseModel):
 class PublicServer(BaseModel):
     id: str
     name: str
-    type: ServerType
     supports_group_chain: bool = False
 
 
@@ -99,6 +98,7 @@ class ServerConfig(BaseModel):
     type: ServerType = ServerType.newapi
     enabled: bool = True
     sort_order: int = 0
+    quota_multiple: float = 1.0
     supports_group_chain: bool = False
     ratio_config_enabled: bool = False
     auth_mode: AuthMode = AuthMode.header
@@ -111,4 +111,5 @@ class ServerConfig(BaseModel):
     log_path: str = "/api/log/self"
     token_search_path: str = "/api/token/search"
     groups_path: str = ""
+    manual_groups: str = ""
     notes: str = ""

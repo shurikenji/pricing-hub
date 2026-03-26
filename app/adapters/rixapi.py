@@ -24,7 +24,6 @@ class RixApiAdapter(NewApiAdapter):
     async def fetch_pricing(self, server: dict) -> "NormalizedPricing":  # noqa: F821
         from app.adapters.base import build_headers, join_url, _TIMEOUT
         import aiohttp
-        from datetime import datetime, timezone
 
         headers = build_headers(server)
         url = join_url(server["base_url"], server.get("pricing_path") or "/api/pricing")
@@ -40,3 +39,57 @@ class RixApiAdapter(NewApiAdapter):
 
         # RixAPI has everything inline — no ratio_config needed
         return self._normalize(server, pricing_data, {})
+
+    def get_groups_path(self, server: dict) -> str:
+        return str(server.get("groups_path") or "/api/token/group").strip()
+
+    def parse_groups(self, data: dict) -> list[dict]:
+        """Ported from shopbot RixAPI client group parsing."""
+        groups: list[dict] = []
+
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    name = (
+                        item.get("value")
+                        or item.get("group")
+                        or item.get("name")
+                        or item.get("key")
+                        or "unknown"
+                    )
+                    raw_label = item.get("key") or item.get("label") or ""
+                    groups.append(
+                        {
+                            "name": name,
+                            "name_en": item.get("name_en"),
+                            "ratio": item.get("ratio")
+                            or item.get("multiplier")
+                            or self.extract_ratio_hint(raw_label, name),
+                            "desc": item.get("desc") or item.get("description") or raw_label,
+                            "translation_source": raw_label or name,
+                        }
+                    )
+        elif isinstance(data, dict):
+            for name, info in data.items():
+                if isinstance(info, dict):
+                    groups.append(
+                        {
+                            "name": name,
+                            "name_en": info.get("name_en"),
+                            "ratio": info.get("ratio") or self.extract_ratio_hint(info.get("desc"), name),
+                            "desc": info.get("desc", ""),
+                            "translation_source": info.get("desc") or name,
+                        }
+                    )
+                else:
+                    groups.append(
+                        {
+                            "name": name,
+                            "name_en": None,
+                            "ratio": 1.0,
+                            "desc": "",
+                            "translation_source": name,
+                        }
+                    )
+
+        return groups

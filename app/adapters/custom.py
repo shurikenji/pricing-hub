@@ -28,3 +28,15 @@ class CustomAdapter(BaseAdapter):
             groups=[],
             fetched_at=datetime.now(timezone.utc).isoformat(),
         )
+
+    async def fetch_groups(self, server: dict) -> list[dict]:
+        pricing = await self.fetch_pricing(server)
+        return [
+            {
+                "name": group.name,
+                "ratio": group.ratio,
+                "desc": group.description,
+                "translation_source": group.description or group.display_name or group.name,
+            }
+            for group in pricing.groups
+        ]

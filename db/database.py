@@ -33,6 +33,7 @@ async def init_db() -> None:
 
     db = await get_db()
     await db.executescript(CREATE_TABLES)
+    await _ensure_server_columns(db)
     await _seed_default_data(db)
     await db.commit()
     logger.info("Database initialized at %s", get_settings().db_path)
@@ -43,6 +44,16 @@ async def close_db() -> None:
     if _db is not None:
         await _db.close()
         _db = None
+
+
+async def _ensure_server_columns(db: aiosqlite.Connection) -> None:
+    cursor = await db.execute("PRAGMA table_info(servers)")
+    rows = await cursor.fetchall()
+    columns = {str(row[1]) for row in rows}
+    if "quota_multiple" not in columns:
+        await db.execute("ALTER TABLE servers ADD COLUMN quota_multiple REAL DEFAULT 1.0")
+    if "manual_groups" not in columns:
+        await db.execute("ALTER TABLE servers ADD COLUMN manual_groups TEXT")
 
 
 def _build_demo_pricing_json() -> str:

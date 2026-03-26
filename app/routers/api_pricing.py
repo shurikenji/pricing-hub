@@ -37,5 +37,5 @@ async def api_pricing(server_id: str, force: bool = Query(False)):
     if not pricing:
         return JSONResponse({"error": "Server not found or fetch failed"}, status_code=404)
 
-    sanitized = await build_public_pricing(pricing, str(server.get("type") or "newapi"))
+    sanitized = await build_public_pricing(pricing, server)
     return sanitized.model_dump()

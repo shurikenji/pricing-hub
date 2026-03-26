@@ -1,6 +1,8 @@
 """JSON API: /api/logs - proxy log queries to upstream servers."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -39,10 +41,15 @@ async def api_logs(body: LogRequest):
     resolved_by_key = False
     resolved_token = None
 
-    if body.api_key and not body.token_name:
-        if not server.get("auth_token") or not server.get("auth_user_value"):
+    if body.start_timestamp is None:
+        params["start_timestamp"] = int((datetime.now(timezone.utc) - timedelta(days=1)).timestamp())
+    if body.end_timestamp is None:
+        params["end_timestamp"] = int(datetime.now(timezone.utc).timestamp())
+
+    if body.api_key:
+        if not server.get("auth_token"):
             return JSONResponse(
-                {"error": "Server lacks admin credentials for API-key log lookup."},
+                {"error": "Server lacks admin token for API-key log lookup."},
                 status_code=400,
             )
         token = await adapter.search_token(server, body.api_key)
@@ -52,14 +59,29 @@ async def api_logs(body: LogRequest):
                 status_code=404,
             )
         params["token_name"] = token["name"]
-        params["userId"] = server["auth_user_value"]
         params["accessToken"] = server["auth_token"]
+        if server.get("auth_user_value"):
+            params["userId"] = server["auth_user_value"]
         resolved_by_key = True
         resolved_token = token["name"]
+    elif body.token_name:
+        if not server.get("auth_token"):
+            return JSONResponse(
+                {"error": "Server lacks admin token for token-name log lookup."},
+                status_code=400,
+            )
+        params["accessToken"] = server["auth_token"]
+        if server.get("auth_user_value"):
+            params["userId"] = server["auth_user_value"]
+        resolved_token = body.token_name
+    elif server.get("auth_token"):
+        params["accessToken"] = server["auth_token"]
+        if server.get("auth_user_value"):
+            params["userId"] = server["auth_user_value"]
 
-    if not params.get("userId") or not params.get("accessToken"):
+    if not params.get("accessToken"):
         return JSONResponse(
-            {"error": "Missing credentials. Provide API key or userId/accessToken."},
+            {"error": "Missing credentials. Provide API key, token name, or configure server admin token."},
             status_code=400,
         )
 

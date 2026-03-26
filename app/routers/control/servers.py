@@ -20,6 +20,7 @@ _SERVER_TYPES = [
     {"value": "rixapi", "label": "RixAPI (Inline Ratio)"},
     {"value": "custom", "label": "Custom Manual"},
 ]
+_DEFAULT_USER_HEADER = "New-Api-User"
 
 
 @router.get("", response_class=HTMLResponse)
@@ -55,16 +56,23 @@ async def servers_save(request: Request):
     if not server_id:
         return RedirectResponse("/control/servers", status_code=303)
 
+    server_type = str(form.get("type", "newapi")).strip()
+    auth_mode = str(form.get("auth_mode", "header")).strip()
+    auth_user_header = str(form.get("auth_user_header", "")).strip()
+    if server_type in {"newapi", "rixapi"} and auth_mode == "header":
+        auth_user_header = _DEFAULT_USER_HEADER
+
     fields = {
         "name": str(form.get("name", "")).strip(),
         "base_url": str(form.get("base_url", "")).strip(),
-        "type": str(form.get("type", "newapi")).strip(),
+        "type": server_type,
         "enabled": 1 if form.get("enabled") else 0,
         "sort_order": int(form.get("sort_order", 0) or 0),
+        "quota_multiple": float(form.get("quota_multiple", 1.0) or 1.0),
         "supports_group_chain": 1 if form.get("supports_group_chain") else 0,
         "ratio_config_enabled": 1 if form.get("ratio_config_enabled") else 0,
-        "auth_mode": str(form.get("auth_mode", "header")).strip(),
-        "auth_user_header": str(form.get("auth_user_header", "")).strip(),
+        "auth_mode": auth_mode,
+        "auth_user_header": auth_user_header,
         "auth_user_value": str(form.get("auth_user_value", "")).strip(),
         "auth_token": str(form.get("auth_token", "")).strip(),
         "auth_cookie": str(form.get("auth_cookie", "")).strip(),
@@ -73,6 +81,7 @@ async def servers_save(request: Request):
         "log_path": str(form.get("log_path", "/api/log/self")).strip(),
         "token_search_path": str(form.get("token_search_path", "/api/token/search")).strip(),
         "groups_path": str(form.get("groups_path", "")).strip(),
+        "manual_groups": str(form.get("manual_groups", "")).strip(),
         "notes": str(form.get("notes", "")).strip(),
     }
 

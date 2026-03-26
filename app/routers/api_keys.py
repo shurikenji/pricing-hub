@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app.adapters import get_adapter
 from app.cache import fetch_pricing
+from app.group_catalog import ensure_server_group_catalog
 from app.sanitizer import sanitize_group_name
 from db.queries.servers import get_server
 
@@ -39,6 +40,20 @@ def _selection_mode(server: dict) -> str:
     return "multiple" if bool(server.get("supports_group_chain")) else "single"
 
 
+def _display_group_ratio(server: dict, ratio: object) -> float:
+    try:
+        group_ratio = float(ratio or 1.0)
+    except (TypeError, ValueError):
+        group_ratio = 1.0
+    try:
+        multiple = float(server.get("quota_multiple") or 1.0)
+    except (TypeError, ValueError):
+        multiple = 1.0
+    if multiple <= 0:
+        multiple = 1.0
+    return round(group_ratio / multiple, 6)
+
+
 def _normalize_selected_groups(groups: list[str], selection_mode: str) -> list[str]:
     cleaned: list[str] = []
     seen: set[str] = set()
@@ -50,21 +65,6 @@ def _normalize_selected_groups(groups: list[str], selection_mode: str) -> list[s
     if selection_mode == "single":
         return cleaned[:1]
     return cleaned
-
-
-def _match_models_by_groups(models: list, groups: list[str], selection_mode: str) -> int:
-    if not groups:
-        return len(models)
-    group_set = set(groups)
-    count = 0
-    for model in models:
-        enabled = set(model.enable_groups or [])
-        if selection_mode == "multiple":
-            if enabled & group_set:
-                count += 1
-        elif enabled & group_set:
-            count += 1
-    return count
 
 
 def _build_update_payload(server_type: str, raw: dict[str, Any], groups: list[str]) -> dict[str, Any] | None:
@@ -129,7 +129,7 @@ def _build_update_payload(server_type: str, raw: dict[str, Any], groups: list[st
 
 @router.post("/keys/resolve")
 async def api_key_resolve(body: KeyResolveRequest):
-    """Resolve API key to token info and available groups."""
+    """Resolve API key to current groups and available group choices."""
     server = await get_server(body.server_id)
     if not server:
         return JSONResponse({"error": "Server not found"}, status_code=404)
@@ -143,33 +143,40 @@ async def api_key_resolve(body: KeyResolveRequest):
     selection_mode = _selection_mode(server)
     groups = _normalize_selected_groups(_normalize_groups(token), selection_mode)
     available_groups = []
-    available_model_count = 0
-    if pricing:
+    catalog_rows = await ensure_server_group_catalog(server)
+    if catalog_rows:
+        available_groups = [
+            {
+                "name": str(group.get("name") or ""),
+                "display_name": sanitize_group_name(
+                    str(group.get("name") or ""),
+                    str(group.get("label_en") or group.get("name") or ""),
+                ),
+                "ratio": _display_group_ratio(server, group.get("ratio")),
+                "category": str(group.get("category") or "Other"),
+            }
+            for group in catalog_rows
+            if str(group.get("name") or "").strip()
+        ]
+    elif pricing:
         available_groups = [
             {
                 "name": group.name,
                 "display_name": sanitize_group_name(group.name, group.display_name),
-                "ratio": group.ratio,
+                "ratio": _display_group_ratio(server, group.ratio),
                 "category": group.category,
             }
             for group in pricing.groups
         ]
-        available_model_count = _match_models_by_groups(pricing.models, groups, selection_mode)
 
     return {
         "token": {
-            "id": token.get("id"),
-            "name": token.get("name"),
-            "remain_quota": token.get("remain_quota"),
-            "used_quota": token.get("used_quota"),
             "groups": groups,
             "display_groups": [sanitize_group_name(group) for group in groups],
         },
         "available_groups": available_groups,
         "supports_group_chain": bool(server.get("supports_group_chain")),
         "selection_mode": selection_mode,
-        "available_model_count": available_model_count,
-        "raw": {k: v for k, v in token.items() if k not in ("key",)},
     }
 
 
@@ -180,9 +187,9 @@ async def api_key_update(body: KeyUpdateRequest):
     if not server:
         return JSONResponse({"error": "Server not found"}, status_code=404)
 
-    if not server.get("auth_token") or not server.get("auth_user_value"):
+    if not server.get("auth_token"):
         return JSONResponse(
-            {"error": "Server admin credentials are not configured."},
+            {"error": "Server admin token is not configured."},
             status_code=400,
         )
 
@@ -217,17 +224,8 @@ async def api_key_update(body: KeyUpdateRequest):
             status_code=502,
         )
 
-    pricing = await fetch_pricing(body.server_id)
-    available_model_count = _match_models_by_groups(
-        pricing.models if pricing else [],
-        groups,
-        selection_mode,
-    )
     return {
         "success": True,
-        "token_name": token.get("name"),
         "groups": groups,
         "display_groups": [sanitize_group_name(group) for group in groups],
-        "selection_mode": selection_mode,
-        "available_model_count": available_model_count,
     }

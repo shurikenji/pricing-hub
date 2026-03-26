@@ -1,101 +1,98 @@
-{% extends "base.html" %}
-{% block title %}Admin - Pricing Hub{% endblock %}
+{% extends "control/base.html" %}
+{% block title %}Tổng quan{% endblock %}
 
 {% block content %}
-<div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold">Admin Panel</h1>
-    <a href="/control/logout" class="btn btn-sm btn-ghost">Logout</a>
-</div>
-
-{% if flash_message %}
-<div class="alert alert-success mb-4">
-    <span>{{ flash_message }}</span>
-</div>
-{% endif %}
-
-<div class="stats shadow w-full mb-6">
-    <div class="stat">
-        <div class="stat-title">Enabled Servers</div>
-        <div class="stat-value text-primary">{{ enabled_server_count }}</div>
-    </div>
-    <div class="stat">
-        <div class="stat-title">Cached Translations</div>
-        <div class="stat-value text-secondary">{{ cached_translation_count }}</div>
-    </div>
-    <div class="stat">
-        <div class="stat-title">Recent Sync Events</div>
-        <div class="stat-value">{{ recent_sync_logs | length }}</div>
-    </div>
-</div>
-
-<div class="flex flex-wrap gap-3 mb-6">
-    <a href="/control/servers" class="btn btn-primary btn-sm">Manage Servers</a>
-    <a href="/pricing" class="btn btn-outline btn-sm">View Pricing</a>
-    <form method="POST" action="/control/translations/refresh" class="inline">
-        <button type="submit" class="btn btn-outline btn-sm">Refresh Translations</button>
-    </form>
-</div>
-
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-    <a href="/control/servers" class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow">
-        <div class="card-body">
-            <h2 class="card-title">Servers</h2>
-            <p class="text-base-content/60">Add, edit, sync, and inspect upstream API servers.</p>
+<div class="page-shell">
+    <section class="page-header">
+        <div>
+            <p class="page-eyebrow">Điều hành hệ thống</p>
+            <h1 class="page-title">Tổng quan Pricing Hub</h1>
+            <p class="page-subtitle">Theo dõi server đang bật, translation cache, và các lần sync gần nhất.</p>
         </div>
-    </a>
-    <a href="/pricing" class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow">
-        <div class="card-body">
-            <h2 class="card-title">Public Pricing</h2>
-            <p class="text-base-content/60">Open the public pricing explorer with current sanitized data.</p>
+        <div class="page-actions">
+            <a href="/control/servers" class="btn-admin">Quản lý máy chủ</a>
         </div>
-    </a>
-</div>
+    </section>
 
-<div class="card bg-base-100 shadow-sm">
-    <div class="card-body">
-        <h2 class="card-title">Recent Sync Activity</h2>
-        {% if recent_sync_logs %}
-        <div class="overflow-x-auto mt-3">
-            <table class="table table-sm">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Server</th>
-                        <th>Status</th>
-                        <th>Models</th>
-                        <th>Groups</th>
-                        <th>Duration</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for log in recent_sync_logs %}
-                    <tr>
-                        <td>{{ log.created_at }}</td>
-                        <td>{{ log.server_id }}</td>
-                        <td>
-                            {% if log.status == "success" %}
-                            <span class="badge badge-success badge-sm">success</span>
-                            {% else %}
-                            <span class="badge badge-error badge-sm">failed</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ log.model_count }}</td>
-                        <td>{{ log.group_count }}</td>
-                        <td>{{ log.duration_ms }} ms</td>
-                    </tr>
-                    {% if log.error_message %}
-                    <tr>
-                        <td></td>
-                        <td colspan="5" class="text-error text-xs">{{ log.error_message }}</td>
-                    </tr>
-                    {% endif %}
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <p class="text-base-content/60 mt-2">No sync activity yet.</p>
-        {% endif %}
-    </div>
+    <section class="stats-grid">
+        <article class="stat-card">
+            <span class="stat-card__label">Enabled servers</span>
+            <div class="stat-card__value">{{ enabled_server_count }}</div>
+            <div class="stat-card__copy">Nguồn dữ liệu đang bật cho pricing, logs, và key lookup.</div>
+        </article>
+        <article class="stat-card">
+            <span class="stat-card__label">Cached translations</span>
+            <div class="stat-card__value">{{ cached_translation_count }}</div>
+            <div class="stat-card__copy">Số label nhóm đã lưu trong translation cache.</div>
+        </article>
+        <article class="stat-card">
+            <span class="stat-card__label">Recent syncs</span>
+            <div class="stat-card__value">{{ recent_sync_logs | length }}</div>
+            <div class="stat-card__copy">Số lần đồng bộ gần nhất đang hiển thị bên dưới.</div>
+        </article>
+    </section>
+
+    <section class="split-grid">
+        <article class="admin-card">
+            <h2 class="section-title">Tác vụ nhanh</h2>
+            <p class="section-copy">Các thao tác quản trị cần dùng thường xuyên.</p>
+
+            <div class="actions-row mt-4">
+                <a href="/control/servers" class="btn-admin secondary">Mở danh sách máy chủ</a>
+            </div>
+
+            <form method="POST" action="/control/translations/refresh" class="mt-4">
+                <button type="submit" class="btn-admin">Refresh translations</button>
+            </form>
+        </article>
+
+        <article class="table-card">
+            <h2 class="section-title">Sync gần đây</h2>
+            <p class="section-copy">Theo dõi trạng thái và thời lượng của từng lần sync.</p>
+
+            {% if recent_sync_logs %}
+            <div class="table-wrap mt-3">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Thời gian</th>
+                            <th>Server</th>
+                            <th>Trạng thái</th>
+                            <th>Models</th>
+                            <th>Groups</th>
+                            <th>Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in recent_sync_logs %}
+                        <tr>
+                            <td>{{ log.created_at }}</td>
+                            <td>{{ log.server_id }}</td>
+                            <td>
+                                {% if log.status == "success" %}
+                                <span class="badge-soft success">success</span>
+                                {% else %}
+                                <span class="badge-soft warn">failed</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ log.model_count }}</td>
+                            <td>{{ log.group_count }}</td>
+                            <td>{{ log.duration_ms }} ms</td>
+                        </tr>
+                        {% if log.error_message %}
+                        <tr>
+                            <td></td>
+                            <td colspan="5" style="color: var(--admin-danger);">{{ log.error_message }}</td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">Chưa có lịch sử đồng bộ.</div>
+            {% endif %}
+        </article>
+    </section>
 </div>
 {% endblock %}

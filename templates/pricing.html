@@ -1,262 +1,323 @@
 {% extends "base.html" %}
-{% block title %}Model Pricing — Pricing Hub{% endblock %}
+{% block title %}Models Pricing - Pricing Hub{% endblock %}
 
 {% block content %}
-<div x-data="pricingApp()" x-init="init()" x-cloak>
-
-    <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+<div x-data="pricingApp()" x-init="init()" x-cloak class="page-stack">
+    <section class="page-head fade-up">
         <div>
-            <h1 class="text-2xl font-bold">Model Pricing</h1>
-            <p class="text-base-content/60 text-sm mt-1">
-                <span x-text="filteredModels.length"></span> models
-                <span x-show="selectedGroup"> in <span class="badge badge-sm badge-primary" x-text="selectedGroup"></span></span>
-            </p>
+            <h1 class="page-title">Model Pricing</h1>
+            <p class="page-subtitle">Search models and open the detail panel for rates, groups, and endpoints.</p>
+        </div>
+        <div class="page-actions">
+            <span class="top-badge" x-text="activeServerName()"></span>
+        </div>
+    </section>
+
+    <section class="shell-panel toolbar-panel fade-up">
+        <div class="panel-heading">
+            <div>
+                <h2 class="panel-title">Filters</h2>
+                <p class="panel-copy">Choose a server, then filter by model, group, tag, or pricing mode.</p>
+            </div>
+            <div class="controls-row">
+                <button type="button" class="button-secondary" :class="viewMode === 'grid' ? 'ring-2 ring-[rgba(0,173,181,0.22)]' : ''" @click="viewMode = 'grid'">
+                    Grid
+                </button>
+                <button type="button" class="button-secondary" :class="viewMode === 'list' ? 'ring-2 ring-[rgba(0,173,181,0.22)]' : ''" @click="viewMode = 'list'">
+                    Table
+                </button>
+                <button type="button" class="button" @click="loadPricing()" :disabled="loading || !selectedServer">
+                    <span x-text="loading ? 'Refreshing...' : 'Refresh'"></span>
+                </button>
+            </div>
         </div>
 
-        <!-- Server selector -->
-        <div class="flex flex-wrap gap-2 items-center">
-            <select class="select select-bordered select-sm w-48" x-model="selectedServer" @change="loadPricing()">
-                <option value="">Select server...</option>
-                {% for s in servers %}
-                <option value="{{ s.id }}" {% if s.id == selected_server_id %}selected{% endif %}>{{ s.name }}</option>
-                {% endfor %}
-            </select>
+        <div class="toolbar-grid">
+            <div>
+                <label class="field-label">Server</label>
+                <select class="select-control" x-model="selectedServer" @change="loadPricing()" autocomplete="off">
+                    <option value="">Select server</option>
+                    {% for s in servers %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="field-label">Search models</label>
+                <input type="text" placeholder="Search by name, description, or vendor" class="control" x-model="searchQuery" @input.debounce.200ms="applyFilters()">
+            </div>
+            <div>
+                <label class="field-label">Group</label>
+                <select class="select-control" x-model="selectedGroup" @change="applyFilters()">
+                    <option value="">All groups</option>
+                    <template x-for="group in groups" :key="selectedServer + ':' + group.name">
+                        <option :value="group.name" x-text="group.display_name + ' (' + formatRatio(group.ratio) + 'x)'"></option>
+                    </template>
+                </select>
+            </div>
+            <div>
+                <label class="field-label">Type</label>
+                <select class="select-control" x-model="selectedTag" @change="applyFilters()">
+                    <option value="">All tags</option>
+                    <template x-for="tag in allTags" :key="tag">
+                        <option :value="tag" x-text="tag"></option>
+                    </template>
+                </select>
+            </div>
+            <div>
+                <label class="field-label">Pricing mode</label>
+                <select class="select-control" x-model="selectedMode" @change="applyFilters()">
+                    <option value="">All modes</option>
+                    <option value="token">Token pricing</option>
+                    <option value="fixed">Fixed price</option>
+                    <option value="request_scaled">Scaled request</option>
+                </select>
+            </div>
+        </div>
 
-            <!-- View toggle -->
-            <div class="btn-group">
-                <button class="btn btn-sm" :class="viewMode === 'grid' ? 'btn-active' : ''" @click="viewMode = 'grid'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
-                </button>
-                <button class="btn btn-sm" :class="viewMode === 'list' ? 'btn-active' : ''" @click="viewMode = 'list'">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-                </button>
+        <div class="chip-cloud" x-show="groups.length">
+            <template x-for="group in groups" :key="selectedServer + ':' + group.name + '-chip'">
+                <button
+                    type="button"
+                    class="chip"
+                    :class="selectedGroup === group.name ? 'is-selected' : ''"
+                    @click="toggleSelectedGroup(group.name)"
+                    x-text="group.display_name"></button>
+            </template>
+        </div>
+    </section>
+
+    <div x-show="!loading && !selectedServer" class="status-banner is-info fade-up">
+        <span class="status-banner__dot"></span>
+        <div>
+            <strong>Select a server to load pricing.</strong>
+            <div class="panel-copy mt-1">No data is loaded until a server is selected.</div>
+        </div>
+    </div>
+
+    <div x-show="loading" class="shell-panel fade-up">
+        <div class="empty-state">
+            <div>
+                <div class="empty-state__icon">Loading</div>
+                <h3 class="panel-title">Refreshing pricing</h3>
+                <p class="panel-copy mt-2">Fetching the latest model and group data from the selected server.</p>
             </div>
         </div>
     </div>
 
-    <!-- Filters -->
-    <div class="flex flex-wrap gap-2 mb-4">
-        <!-- Search -->
-        <input type="text" placeholder="Search model..." class="input input-bordered input-sm w-64"
-               x-model="searchQuery" @input.debounce.200ms="applyFilters()">
-
-        <!-- Group filter -->
-        <select class="select select-bordered select-sm" x-model="selectedGroup" @change="applyFilters()">
-            <option value="">All groups</option>
-            <template x-for="g in groups" :key="g.name">
-                <option :value="g.name" x-text="g.display_name + ' (' + g.ratio + 'x)'"></option>
-            </template>
-        </select>
-
-        <!-- Tag filter -->
-        <select class="select select-bordered select-sm" x-model="selectedTag" @change="applyFilters()">
-            <option value="">All types</option>
-            <template x-for="tag in allTags" :key="tag">
-                <option :value="tag" x-text="tag"></option>
-            </template>
-        </select>
-
-        <!-- Pricing mode filter -->
-        <select class="select select-bordered select-sm" x-model="selectedMode" @change="applyFilters()">
-            <option value="">All pricing</option>
-            <option value="token">Token-based</option>
-            <option value="fixed">Fixed price</option>
-        </select>
-    </div>
-
-    <!-- Loading -->
-    <div x-show="loading" class="flex justify-center py-12">
-        <span class="loading loading-spinner loading-lg"></span>
-    </div>
-
-    <!-- No servers -->
-    <div x-show="!loading && !selectedServer" class="alert alert-info">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <span>Select a server to view model pricing.</span>
-    </div>
-
-    <!-- Grid view -->
-    <div x-show="!loading && viewMode === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+    <section x-show="!loading && viewMode === 'grid' && filteredModels.length > 0" class="model-grid fade-up">
         <template x-for="model in filteredModels" :key="model.model_name">
-            <div class="card bg-base-100 shadow-sm hover:shadow-md transition-shadow cursor-pointer fade-in"
-                 @click="openDetail(model)">
-                <div class="card-body p-4">
-                    <h3 class="card-title text-sm font-mono break-all" x-text="model.model_name"></h3>
-                    <!-- Tags -->
-                    <div class="flex flex-wrap gap-1 mt-1">
-                        <template x-for="tag in model.tags.slice(0, 4)" :key="tag">
-                            <span class="badge badge-xs badge-outline" x-text="tag"></span>
-                        </template>
-                    </div>
-                    <!-- Price -->
-                    <div class="mt-2 text-xs">
-                        <template x-if="model.pricing_mode === 'token'">
-                            <div>
-                                <div class="flex justify-between">
-                                    <span class="text-base-content/50">Input</span>
-                                    <span class="font-semibold text-success" x-text="'$' + model.input_price_per_1m?.toFixed(2) + '/1M'"></span>
-                                </div>
-                                <div class="flex justify-between">
-                                    <span class="text-base-content/50">Output</span>
-                                    <span class="font-semibold text-warning" x-text="'$' + model.output_price_per_1m?.toFixed(2) + '/1M'"></span>
-                                </div>
-                            </div>
-                        </template>
-                        <template x-if="model.pricing_mode === 'fixed'">
-                            <div class="flex justify-between">
-                                <span class="text-base-content/50">Per request</span>
-                                <span class="font-semibold text-info" x-text="'$' + model.request_price?.toFixed(4)"></span>
-                            </div>
-                        </template>
-                    </div>
-                    <!-- Groups count -->
-                    <div class="text-xs text-base-content/40 mt-1">
-                        <span x-text="Object.keys(model.group_prices || {}).length"></span> groups
-                    </div>
+            <article class="shell-card shell-card--compact model-card" @click="openDetail(model)">
+                <div class="meta-line">
+                    <span class="tag is-accent" x-text="model.vendor_name || activeServerName()"></span>
+                    <button type="button" class="icon-button" @click.stop="copyModelId(model, $event.currentTarget)" :aria-label="'Copy ' + model.model_name">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 16.5h8.25A2.25 2.25 0 0018.5 14.25V6a2.25 2.25 0 00-2.25-2.25H8A2.25 2.25 0 005.75 6v8.25A2.25 2.25 0 008 16.5z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.25 7.5H6A2.25 2.25 0 003.75 9.75V18A2.25 2.25 0 006 20.25h8.25A2.25 2.25 0 0016.5 18v-2.25" />
+                        </svg>
+                    </button>
                 </div>
-            </div>
+
+                <h3 class="model-card__name" x-text="model.model_name"></h3>
+                <p class="panel-copy copy-clamp" x-text="model.description || 'No description available.'"></p>
+
+                <div class="controls-row mt-4">
+                    <template x-for="tag in model.tags.slice(0, 4)" :key="tag">
+                        <span class="chip" x-text="tag"></span>
+                    </template>
+                    <span class="chip" x-show="(model.enable_groups || []).length" x-text="(model.enable_groups || []).length + ' groups'"></span>
+                </div>
+
+                <div class="divider my-5"></div>
+
+                <div class="price-stack">
+                    <template x-if="model.pricing_mode === 'token'">
+                        <div class="space-y-3">
+                            <div class="price-line">
+                                <span class="price-kicker">Input / 1M</span>
+                                <span class="price-value text-[var(--success)]" x-text="formatPrice(displayInputPrice(model), '/1M')"></span>
+                            </div>
+                            <div class="price-line">
+                                <span class="price-kicker">Output / 1M</span>
+                                <span class="price-value text-[var(--warning)]" x-text="formatPrice(displayOutputPrice(model), '/1M')"></span>
+                            </div>
+                        </div>
+                    </template>
+                    <template x-if="model.pricing_mode !== 'token'">
+                        <div class="price-line">
+                            <span class="price-kicker">Per request</span>
+                            <span class="price-value text-[var(--accent-strong)]" x-text="formatPrice(displayRequestPrice(model))"></span>
+                        </div>
+                    </template>
+                </div>
+            </article>
         </template>
-    </div>
+    </section>
 
-    <!-- List view -->
-    <div x-show="!loading && viewMode === 'list'" class="overflow-x-auto">
-        <table class="table table-sm table-zebra">
-            <thead>
-                <tr>
-                    <th>Model</th>
-                    <th>Type</th>
-                    <th>Input $/1M</th>
-                    <th>Output $/1M</th>
-                    <th>Tags</th>
-                    <th>Groups</th>
-                </tr>
-            </thead>
-            <tbody>
-                <template x-for="model in filteredModels" :key="model.model_name">
-                    <tr class="hover cursor-pointer" @click="openDetail(model)">
-                        <td class="font-mono text-sm" x-text="model.model_name"></td>
-                        <td><span class="badge badge-xs" x-text="model.pricing_mode"></span></td>
-                        <td x-text="model.input_price_per_1m != null ? '$' + model.input_price_per_1m.toFixed(2) : model.request_price != null ? '$' + model.request_price.toFixed(4) + '/req' : '—'"></td>
-                        <td x-text="model.output_price_per_1m != null ? '$' + model.output_price_per_1m.toFixed(2) : '—'"></td>
-                        <td>
-                            <div class="flex flex-wrap gap-1">
-                                <template x-for="tag in model.tags.slice(0, 3)" :key="tag">
-                                    <span class="badge badge-xs badge-outline" x-text="tag"></span>
-                                </template>
-                            </div>
-                        </td>
-                        <td x-text="Object.keys(model.group_prices || {}).length"></td>
+    <section x-show="!loading && viewMode === 'list' && filteredModels.length > 0" class="shell-table fade-up">
+        <div class="panel-heading">
+            <div>
+                <h2 class="panel-title">Table</h2>
+                <p class="panel-copy">Dense comparison view for the current result set.</p>
+            </div>
+        </div>
+
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>Provider</th>
+                        <th>Copy</th>
+                        <th>Input</th>
+                        <th>Output</th>
+                        <th>Tags</th>
+                        <th>Groups</th>
                     </tr>
-                </template>
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Detail side panel (drawer) -->
-    <div class="drawer drawer-end" :class="{ 'drawer-open': detailOpen }">
-        <input type="checkbox" class="drawer-toggle" :checked="detailOpen">
-        <div class="drawer-side z-50">
-            <label class="drawer-overlay" @click="detailOpen = false"></label>
-            <div class="bg-base-100 min-h-full w-full max-w-lg p-6 overflow-y-auto">
-                <template x-if="detailModel">
-                    <div>
-                        <!-- Header -->
-                        <div class="flex justify-between items-start mb-4">
-                            <div>
-                                <h2 class="text-lg font-bold font-mono break-all" x-text="detailModel.model_name"></h2>
-                                <p class="text-sm text-base-content/60 mt-1" x-text="detailModel.description"></p>
-                            </div>
-                            <button class="btn btn-sm btn-ghost" @click="detailOpen = false">✕</button>
-                        </div>
-
-                        <!-- Copy model ID -->
-                        <button class="btn btn-sm btn-outline btn-block mb-4"
-                                @click="navigator.clipboard.writeText(detailModel.model_name); $el.textContent = 'Copied!'; setTimeout(() => $el.textContent = 'Copy Model ID', 1500)">
-                            Copy Model ID
-                        </button>
-
-                        <!-- Tags -->
-                        <div class="flex flex-wrap gap-1 mb-4">
-                            <template x-for="tag in detailModel.tags" :key="tag">
-                                <span class="badge badge-sm badge-primary badge-outline" x-text="tag"></span>
-                            </template>
-                        </div>
-
-                        <!-- Endpoints -->
-                        <template x-if="detailModel.supported_endpoints?.length">
-                            <div class="mb-4">
-                                <h3 class="text-sm font-semibold mb-2">API Endpoints</h3>
-                                <template x-for="ep in detailModel.supported_endpoints" :key="ep">
-                                    <code class="block text-xs bg-base-200 px-2 py-1 rounded mb-1 font-mono" x-text="ep"></code>
-                                </template>
-                            </div>
-                        </template>
-
-                        <!-- Base price -->
-                        <div class="mb-4">
-                            <h3 class="text-sm font-semibold mb-2">Base Price (ratio 1x)</h3>
-                            <template x-if="detailModel.pricing_mode === 'token'">
-                                <div class="stats stats-vertical shadow w-full">
-                                    <div class="stat py-2">
-                                        <div class="stat-title text-xs">Input</div>
-                                        <div class="stat-value text-lg text-success" x-text="'$' + (detailModel.input_price_per_1m?.toFixed(2) || '0') + '/1M'"></div>
-                                    </div>
-                                    <div class="stat py-2">
-                                        <div class="stat-title text-xs">Output</div>
-                                        <div class="stat-value text-lg text-warning" x-text="'$' + (detailModel.output_price_per_1m?.toFixed(2) || '0') + '/1M'"></div>
-                                    </div>
-                                    <template x-if="detailModel.cached_input_price_per_1m != null">
-                                        <div class="stat py-2">
-                                            <div class="stat-title text-xs">Cached Input</div>
-                                            <div class="stat-value text-lg text-info" x-text="'$' + detailModel.cached_input_price_per_1m.toFixed(2) + '/1M'"></div>
-                                        </div>
+                </thead>
+                <tbody>
+                    <template x-for="model in filteredModels" :key="model.model_name + '-row'">
+                        <tr class="cursor-pointer" @click="openDetail(model)">
+                            <td>
+                                <div class="code-text text-sm" x-text="model.model_name"></div>
+                                <div class="panel-copy mt-1" x-text="model.description || ''"></div>
+                            </td>
+                            <td x-text="model.vendor_name || activeServerName()"></td>
+                            <td>
+                                <button type="button" class="icon-button" @click.stop="copyModelId(model, $event.currentTarget)" :aria-label="'Copy ' + model.model_name">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 16.5h8.25A2.25 2.25 0 0018.5 14.25V6a2.25 2.25 0 00-2.25-2.25H8A2.25 2.25 0 005.75 6v8.25A2.25 2.25 0 008 16.5z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.25 7.5H6A2.25 2.25 0 003.75 9.75V18A2.25 2.25 0 006 20.25h8.25A2.25 2.25 0 0016.5 18v-2.25" />
+                                    </svg>
+                                </button>
+                            </td>
+                            <td x-text="model.pricing_mode === 'token' ? formatPrice(displayInputPrice(model), '/1M') : formatPrice(displayRequestPrice(model))"></td>
+                            <td x-text="model.pricing_mode === 'token' ? formatPrice(displayOutputPrice(model), '/1M') : '-'"></td>
+                            <td>
+                                <div class="controls-row">
+                                    <template x-for="tag in model.tags.slice(0, 3)" :key="tag + '-row'">
+                                        <span class="chip" x-text="tag"></span>
                                     </template>
                                 </div>
-                            </template>
-                            <template x-if="detailModel.pricing_mode === 'fixed'">
-                                <div class="stats shadow w-full">
-                                    <div class="stat">
-                                        <div class="stat-title text-xs">Per Request</div>
-                                        <div class="stat-value text-lg text-info" x-text="'$' + (detailModel.request_price?.toFixed(4) || '0')"></div>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
+                            </td>
+                            <td x-text="(model.enable_groups || []).length"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </section>
 
-                        <!-- Group prices -->
-                        <template x-if="Object.keys(detailModel.group_prices || {}).length > 0">
-                            <div>
-                                <h3 class="text-sm font-semibold mb-2">Group Prices</h3>
-                                <div class="overflow-x-auto">
-                                    <table class="table table-xs">
-                                        <thead>
-                                            <tr>
-                                                <th>Group</th>
-                                                <th>Ratio</th>
-                                                <th>Input</th>
-                                                <th>Output</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <template x-for="(gp, gname) in detailModel.group_prices" :key="gname">
-                                                <tr>
-                                                    <td class="text-xs" x-text="gp.group_display_name || gname"></td>
-                                                    <td x-text="gp.group_ratio + 'x'"></td>
-                                                    <td class="text-success text-xs" x-text="gp.input_price_per_1m != null ? '$' + gp.input_price_per_1m.toFixed(2) : gp.request_price != null ? '$' + gp.request_price.toFixed(4) : '—'"></td>
-                                                    <td class="text-warning text-xs" x-text="gp.output_price_per_1m != null ? '$' + gp.output_price_per_1m.toFixed(2) : '—'"></td>
-                                                </tr>
-                                            </template>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </template>
+    <div x-show="!loading && selectedServer && filteredModels.length === 0" class="shell-panel fade-up">
+        <div class="empty-state">
+            <div>
+                <div class="empty-state__icon">Empty</div>
+                <h3 class="panel-title">No matching models</h3>
+                <p class="panel-copy mt-2">Try clearing one or more filters.</p>
             </div>
         </div>
     </div>
+
+    <template x-if="detailOpen && detailModel">
+        <div>
+            <div class="detail-overlay" @click="detailOpen = false"></div>
+            <aside class="detail-panel fade-up">
+                <button type="button" class="icon-button detail-close" @click="detailOpen = false" aria-label="Close detail panel">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+
+                <div class="mt-5">
+                    <div class="controls-row mb-4" style="justify-content: space-between; align-items: center;">
+                        <span class="tag is-accent" x-text="detailModel.vendor_name || activeServerName()"></span>
+                        <button type="button" class="button-secondary" @click="copyModelId(detailModel, $event.currentTarget)">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 16.5h8.25A2.25 2.25 0 0018.5 14.25V6a2.25 2.25 0 00-2.25-2.25H8A2.25 2.25 0 005.75 6v8.25A2.25 2.25 0 008 16.5z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.25 7.5H6A2.25 2.25 0 003.75 9.75V18A2.25 2.25 0 006 20.25h8.25A2.25 2.25 0 0016.5 18v-2.25" />
+                            </svg>
+                            <span>Copy model ID</span>
+                        </button>
+                    </div>
+                    <h2 class="section-title code-text" x-text="detailModel.model_name"></h2>
+                    <p class="lead mt-4" x-text="detailModel.description || 'No additional description available.'"></p>
+                </div>
+
+                <div class="controls-row mt-5">
+                    <template x-for="tag in detailModel.tags" :key="tag + '-detail'">
+                        <span class="chip is-selected" x-text="tag"></span>
+                    </template>
+                </div>
+
+                <template x-if="(detailModel.supported_endpoints || []).length">
+                    <section class="shell-panel mt-6 !p-5">
+                        <div class="panel-heading">
+                            <div>
+                                <h3 class="panel-title">API endpoints</h3>
+                                <p class="panel-copy">Only shown when the server provides endpoint metadata for this model.</p>
+                            </div>
+                        </div>
+                        <div class="space-y-2">
+                            <template x-for="endpoint in detailModel.supported_endpoints" :key="endpoint">
+                                <div class="chip code-text w-full justify-start rounded-[16px] px-4 py-3" x-text="endpoint"></div>
+                            </template>
+                        </div>
+                    </section>
+                </template>
+
+                <template x-if="(detailModel.enable_groups || []).length">
+                    <section class="shell-panel mt-6 !p-5">
+                        <div class="panel-heading">
+                            <div>
+                                <h3 class="panel-title">Available groups</h3>
+                                <p class="panel-copy">Groups where this model can be used on the selected server.</p>
+                            </div>
+                        </div>
+                        <div class="chip-cloud">
+                            <template x-for="groupName in detailModel.enable_groups" :key="groupName">
+                                <span class="chip" x-text="groupDisplayName(groupName)"></span>
+                            </template>
+                        </div>
+                    </section>
+                </template>
+
+                <template x-if="sortedGroupEntries(detailModel).length">
+                    <section class="shell-table mt-6 !p-5">
+                        <div class="panel-heading">
+                            <div>
+                                <h3 class="panel-title">Group price matrix</h3>
+                                <p class="panel-copy">Per-group pricing calculated from the selected server.</p>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Group</th>
+                                        <th>Ratio</th>
+                                        <th>Input / 1M</th>
+                                        <th>Output / 1M</th>
+                                        <th>Request</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="[groupName, groupPrice] in sortedGroupEntries(detailModel)" :key="groupName + '-price'">
+                                        <tr>
+                                            <td x-text="groupPrice.group_display_name || groupDisplayName(groupName)"></td>
+                                            <td x-text="'x' + formatRatio(groupPrice.group_ratio || 1)"></td>
+                                            <td x-text="formatPrice(groupPrice.input_price_per_1m, '/1M')"></td>
+                                            <td x-text="formatPrice(groupPrice.output_price_per_1m, '/1M')"></td>
+                                            <td x-text="formatPrice(groupPrice.request_price)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </template>
+            </aside>
+        </div>
+    </template>
 </div>
 {% endblock %}
 
@@ -264,9 +325,9 @@
 <script>
 function pricingApp() {
     return {
-        // State
         selectedServer: '{{ selected_server_id }}',
         pricing: {{ pricing | tojson if pricing else 'null' }},
+        serverCatalog: {{ servers | tojson }},
         loading: false,
         viewMode: 'grid',
         searchQuery: '',
@@ -279,76 +340,219 @@ function pricingApp() {
         groups: [],
         filteredModels: [],
         allTags: [],
+        loadRequestId: 0,
 
         init() {
+            this.selectedServer = String(this.pricing?.server_id || '{{ selected_server_id }}' || '');
             if (this.pricing) {
                 this.models = this.pricing.models || [];
                 this.groups = this.pricing.groups || [];
                 this.buildTags();
                 this.applyFilters();
+            } else if (this.selectedServer) {
+                this.loadPricing();
             }
         },
 
+        activeServer() {
+            return this.serverCatalog.find((server) => String(server.id) === String(this.selectedServer)) || null;
+        },
+
+        activeServerName() {
+            return this.pricing?.server_name || this.activeServer()?.name || 'No server selected';
+        },
+
+        prettyMode(mode) {
+            if (mode === 'request_scaled') return 'Scaled request';
+            if (mode === 'fixed') return 'Fixed';
+            if (mode === 'token') return 'Token';
+            return 'Unknown';
+        },
+
+        formatPrice(value, suffix = '') {
+            if (value == null || value === '') return '-';
+            return '$' + Number(value).toFixed(2).replace(/\.00$/, '') + suffix;
+        },
+
+        formatRatio(value) {
+            const number = Number(value);
+            if (!Number.isFinite(number)) return '0.00';
+            return number.toFixed(2);
+        },
+
         async loadPricing() {
-            if (!this.selectedServer) return;
+            const serverId = String(this.selectedServer || '').trim();
+            if (!serverId) {
+                this.clearPricingState();
+                history.replaceState(null, '', '/pricing');
+                return;
+            }
+
+            const requestId = ++this.loadRequestId;
             this.loading = true;
+            this.clearPricingState();
             try {
-                const resp = await fetch(`/api/pricing/${this.selectedServer}`);
-                this.pricing = await resp.json();
+                const resp = await fetch(`/api/pricing/${serverId}`);
+                const payload = await resp.json();
+                if (requestId !== this.loadRequestId) return;
+                if (!resp.ok || payload.error) {
+                    throw new Error(payload.error || 'Failed to load pricing');
+                }
+                this.selectedServer = serverId;
+                this.pricing = payload;
                 this.models = this.pricing.models || [];
                 this.groups = this.pricing.groups || [];
                 this.buildTags();
-                this.selectedGroup = '';
-                this.selectedTag = '';
-                this.selectedMode = '';
-                this.searchQuery = '';
                 this.applyFilters();
-                // Update URL
                 history.replaceState(null, '', `/pricing?server=${this.selectedServer}`);
             } catch (e) {
                 console.error('Failed to load pricing:', e);
+                if (requestId !== this.loadRequestId) return;
+                this.clearPricingState();
+            } finally {
+                if (requestId === this.loadRequestId) {
+                    this.loading = false;
+                }
             }
-            this.loading = false;
+        },
+
+        clearPricingState() {
+            this.pricing = null;
+            this.models = [];
+            this.groups = [];
+            this.filteredModels = [];
+            this.allTags = [];
+            this.selectedGroup = '';
+            this.selectedTag = '';
+            this.selectedMode = '';
+            this.searchQuery = '';
+            this.detailOpen = false;
+            this.detailModel = null;
         },
 
         buildTags() {
             const tagSet = new Set();
-            for (const m of this.models) {
-                for (const t of (m.tags || [])) tagSet.add(t);
+            for (const model of this.models) {
+                for (const tag of (model.tags || [])) tagSet.add(tag);
             }
             this.allTags = [...tagSet].sort();
         },
 
         applyFilters() {
             let result = this.models;
-            const q = this.searchQuery.toLowerCase().trim();
+            const query = this.searchQuery.toLowerCase().trim();
 
-            if (q) {
-                result = result.filter(m =>
-                    m.model_name.toLowerCase().includes(q) ||
-                    (m.description || '').toLowerCase().includes(q) ||
-                    (m.vendor_name || '').toLowerCase().includes(q)
+            if (query) {
+                result = result.filter((model) =>
+                    model.model_name.toLowerCase().includes(query) ||
+                    (model.description || '').toLowerCase().includes(query) ||
+                    (model.vendor_name || '').toLowerCase().includes(query)
                 );
             }
             if (this.selectedGroup) {
-                result = result.filter(m =>
-                    (m.enable_groups || []).includes(this.selectedGroup)
-                );
+                result = result.filter((model) => this.availableGroupNames(model).includes(this.selectedGroup));
             }
             if (this.selectedTag) {
-                result = result.filter(m =>
-                    (m.tags || []).includes(this.selectedTag)
-                );
+                result = result.filter((model) => (model.tags || []).includes(this.selectedTag));
             }
             if (this.selectedMode) {
-                result = result.filter(m => m.pricing_mode === this.selectedMode);
+                result = result.filter((model) => model.pricing_mode === this.selectedMode);
             }
             this.filteredModels = result;
+        },
+
+        groupDisplayName(groupName) {
+            return this.groups.find((group) => group.name === groupName)?.display_name || groupName;
+        },
+
+        toggleSelectedGroup(groupName) {
+            this.selectedGroup = this.selectedGroup === groupName ? '' : groupName;
+            this.applyFilters();
+        },
+
+        availableGroupNames(model) {
+            const names = new Set([
+                ...(model.enable_groups || []),
+                ...Object.keys(model.group_prices || {}),
+            ]);
+            return [...names];
+        },
+
+        preferredGroupSnapshot(model) {
+            const snapshots = Object.values(model.group_prices || {}).filter((snapshot) => snapshot && (
+                snapshot.input_price_per_1m != null ||
+                snapshot.output_price_per_1m != null ||
+                snapshot.request_price != null
+            ));
+
+            if (!snapshots.length) return null;
+
+            if (this.selectedGroup && model.group_prices?.[this.selectedGroup]) {
+                return model.group_prices[this.selectedGroup];
+            }
+
+            if (model.pricing_mode === 'token') {
+                return snapshots
+                    .filter((snapshot) => snapshot.input_price_per_1m != null || snapshot.output_price_per_1m != null)
+                    .sort((left, right) => {
+                        const leftValue = left.input_price_per_1m ?? left.output_price_per_1m ?? Number.POSITIVE_INFINITY;
+                        const rightValue = right.input_price_per_1m ?? right.output_price_per_1m ?? Number.POSITIVE_INFINITY;
+                        return leftValue - rightValue;
+                    })[0] || null;
+            }
+
+            return snapshots
+                .filter((snapshot) => snapshot.request_price != null)
+                .sort((left, right) => (left.request_price ?? Number.POSITIVE_INFINITY) - (right.request_price ?? Number.POSITIVE_INFINITY))[0] || null;
+        },
+
+        displayInputPrice(model) {
+            return this.preferredGroupSnapshot(model)?.input_price_per_1m ?? model.input_price_per_1m;
+        },
+
+        displayOutputPrice(model) {
+            return this.preferredGroupSnapshot(model)?.output_price_per_1m ?? model.output_price_per_1m;
+        },
+
+        displayRequestPrice(model) {
+            return this.preferredGroupSnapshot(model)?.request_price ?? model.request_price;
+        },
+
+        sortedGroupEntries(model) {
+            return Object.entries(model.group_prices || {}).sort((left, right) => {
+                return Number(left[1].group_ratio || 0) - Number(right[1].group_ratio || 0);
+            });
         },
 
         openDetail(model) {
             this.detailModel = model;
             this.detailOpen = true;
+        },
+
+        async copyModelId(model, button) {
+            if (!model?.model_name) return;
+            const original = button?.dataset?.label || button?.textContent?.trim() || '';
+            try {
+                await navigator.clipboard.writeText(model.model_name);
+                if (button) {
+                    if (!button.dataset.label) button.dataset.label = original;
+                    const textNode = button.querySelector('span');
+                    if (textNode) {
+                        textNode.textContent = 'Copied';
+                    } else {
+                        button.dataset.copied = 'true';
+                    }
+                    setTimeout(() => {
+                        const resetNode = button.querySelector('span');
+                        if (resetNode && button.dataset.label) {
+                            resetNode.textContent = button.dataset.label;
+                        }
+                        delete button.dataset.copied;
+                    }, 1400);
+                }
+            } catch (error) {
+                console.error('Copy failed:', error);
+            }
         },
     };
 }

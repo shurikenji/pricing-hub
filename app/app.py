@@ -65,9 +65,11 @@ def create_app() -> FastAPI:
 
     # --- Admin routers ---
     from app.routers.control.auth import router as auth_router
+    from app.routers.control.settings import router as settings_router
     from app.routers.control.servers import router as servers_router
 
     app.include_router(auth_router)
+    app.include_router(settings_router)
     app.include_router(servers_router)
 
     # Health check

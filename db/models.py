@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS servers (
     type                TEXT NOT NULL DEFAULT 'newapi',
     enabled             INTEGER DEFAULT 1,
     sort_order          INTEGER DEFAULT 0,
+    quota_multiple      REAL DEFAULT 1.0,
 
     -- Feature flags
     supports_group_chain INTEGER DEFAULT 0,
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS servers (
     log_path            TEXT DEFAULT '/api/log/self',
     token_search_path   TEXT DEFAULT '/api/token/search',
     groups_path         TEXT,
+    manual_groups       TEXT,
 
     -- Internal
     notes               TEXT,
@@ -65,4 +67,11 @@ CREATE TABLE IF NOT EXISTS sync_log (
     created_at      TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_sync_log_server ON sync_log(server_id, created_at);
+
+-- APP SETTINGS (runtime admin configuration)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key             TEXT PRIMARY KEY,
+    value           TEXT,
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
 """

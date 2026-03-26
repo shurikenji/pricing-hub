@@ -1,154 +1,234 @@
-{% extends "base.html" %}
-{% block title %}Manage Servers - Pricing Hub{% endblock %}
+{% extends "control/base.html" %}
+{% block title %}Máy chủ API{% endblock %}
 
 {% block content %}
-<div x-data="serversAdmin()" x-cloak>
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold">Manage Servers</h1>
-        <div class="flex gap-2">
-            <a href="/control" class="btn btn-sm btn-ghost"><- Dashboard</a>
-            <form method="POST" action="/control/servers/sync-all" class="inline">
-                <button type="submit" class="btn btn-sm btn-outline">Sync All</button>
-            </form>
-            <button class="btn btn-sm btn-primary" @click="openAddForm()">+ Add Server</button>
+<div x-data="serversAdmin()" x-cloak class="page-shell">
+    <section class="page-header">
+        <div>
+            <p class="page-eyebrow">Server inventory</p>
+            <h1 class="page-title">Quản lý máy chủ API</h1>
+            <p class="page-subtitle">Thêm, sửa, sync, hoặc tắt từng upstream server.</p>
         </div>
-    </div>
+        <div class="page-actions">
+            <a href="/control" class="btn-admin secondary">Về tổng quan</a>
+            <form method="POST" action="/control/servers/sync-all">
+                <button type="submit" class="btn-admin">Sync all</button>
+            </form>
+            <button type="button" class="btn-admin ghost" @click="openAddForm()">Thêm server</button>
+        </div>
+    </section>
 
-    <div class="space-y-3">
+    <section class="card-grid">
         {% for s in servers %}
-        <div class="card bg-base-100 shadow-sm">
-            <div class="card-body p-4 flex flex-row items-center justify-between gap-4">
-                <div class="min-w-0">
-                    <h3 class="font-bold">{{ s.name }}</h3>
-                    <p class="text-sm text-base-content/60 break-all">
-                        <span class="badge badge-xs">{{ s.type }}</span>
-                        {{ s.base_url }}
-                        {% if not s.enabled %}<span class="badge badge-xs badge-error">disabled</span>{% endif %}
-                    </p>
-                    {% if s.latest_sync %}
-                    <p class="text-xs mt-2">
-                        {% if s.latest_sync.status == "success" %}
-                        <span class="badge badge-xs badge-success">last sync ok</span>
-                        {% else %}
-                        <span class="badge badge-xs badge-error">last sync failed</span>
-                        {% endif %}
-                        <span class="text-base-content/60">
-                            {{ s.latest_sync.created_at }} | {{ s.latest_sync.model_count }} models | {{ s.latest_sync.group_count }} groups | {{ s.latest_sync.duration_ms }} ms
-                        </span>
-                    </p>
-                    {% if s.latest_sync.error_message %}
-                    <p class="text-xs text-error mt-1 break-all">{{ s.latest_sync.error_message }}</p>
-                    {% endif %}
-                    {% elif s.pricing_fetched_at %}
-                    <p class="text-xs mt-2 text-base-content/60">
-                        Cached snapshot at {{ s.pricing_fetched_at }}
-                    </p>
+        <article class="admin-card">
+            <div class="actions-row" style="justify-content: space-between;">
+                <span class="badge-soft">{{ s.type }}</span>
+                {% if s.enabled %}
+                <span class="badge-soft success">enabled</span>
+                {% else %}
+                <span class="badge-soft warn">disabled</span>
+                {% endif %}
+            </div>
+
+            <h2 class="section-title mt-3">{{ s.name }}</h2>
+            <p class="muted code-block mt-2">{{ s.base_url }}</p>
+
+            {% if s.latest_sync %}
+            <div class="meta-list mt-3">
+                <div class="meta-row">
+                    <span>Multiple</span>
+                    <strong>x{{ s.quota_multiple or 1 }}</strong>
+                </div>
+                <div class="meta-row">
+                    <span>Last sync</span>
+                    {% if s.latest_sync.status == "success" %}
+                    <span class="badge-soft success">success</span>
                     {% else %}
-                    <p class="text-xs mt-2 text-base-content/40">No sync history yet.</p>
+                    <span class="badge-soft warn">failed</span>
                     {% endif %}
                 </div>
-                <div class="flex gap-1 shrink-0">
-                    <form method="POST" action="/control/servers/{{ s.id }}/sync" class="inline">
-                        <button type="submit" class="btn btn-xs btn-outline">Sync</button>
-                    </form>
-                    <button class="btn btn-xs btn-outline" @click='editServer({{ s | tojson }})'>Edit</button>
-                    <a href="/control/servers/{{ s.id }}/delete" class="btn btn-xs btn-error btn-outline"
-                       onclick="return confirm('Delete this server?')">Delete</a>
+                <div class="meta-row">
+                    <span>Timestamp</span>
+                    <strong>{{ s.latest_sync.created_at }}</strong>
+                </div>
+                <div class="meta-row">
+                    <span>Models / groups</span>
+                    <strong>{{ s.latest_sync.model_count }} / {{ s.latest_sync.group_count }}</strong>
+                </div>
+                <div class="meta-row">
+                    <span>Duration</span>
+                    <strong>{{ s.latest_sync.duration_ms }} ms</strong>
+                </div>
+                {% if s.latest_sync.error_message %}
+                <p class="muted" style="color: var(--admin-danger);">{{ s.latest_sync.error_message }}</p>
+                {% endif %}
+            </div>
+            {% elif s.pricing_fetched_at %}
+            <div class="meta-list mt-3">
+                <div class="meta-row">
+                    <span>Multiple</span>
+                    <strong>x{{ s.quota_multiple or 1 }}</strong>
+                </div>
+                <div class="meta-row">
+                    <span>Cached snapshot</span>
+                    <strong>{{ s.pricing_fetched_at }}</strong>
                 </div>
             </div>
-        </div>
-        {% endfor %}
-        {% if not servers %}
-        <div class="alert">No servers configured. Click "Add Server" to get started.</div>
-        {% endif %}
-    </div>
+            {% else %}
+            <div class="meta-list mt-3">
+                <div class="meta-row">
+                    <span>Multiple</span>
+                    <strong>x{{ s.quota_multiple or 1 }}</strong>
+                </div>
+                <div class="meta-row">
+                    <span>Status</span>
+                    <strong>No sync history yet</strong>
+                </div>
+            </div>
+            {% endif %}
 
-    <dialog class="modal" :class="{ 'modal-open': formOpen }">
-        <div class="modal-box max-w-2xl">
-            <h3 class="font-bold text-lg" x-text="editing ? 'Edit Server' : 'Add Server'"></h3>
-            <form method="POST" action="/control/servers/save" class="mt-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Server ID</label>
-                        <input type="text" name="id" class="input input-bordered input-sm" x-model="form.id" :disabled="editing" required>
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Name</label>
-                        <input type="text" name="name" class="input input-bordered input-sm" x-model="form.name" required>
-                    </div>
-                    <div class="form-control md:col-span-2">
-                        <label class="label label-text text-xs">Base URL</label>
-                        <input type="url" name="base_url" class="input input-bordered input-sm" x-model="form.base_url" required>
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Type</label>
-                        <select name="type" class="select select-bordered select-sm" x-model="form.type">
-                            {% for t in server_types %}
-                            <option value="{{ t.value }}">{{ t.label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Auth Mode</label>
-                        <select name="auth_mode" class="select select-bordered select-sm" x-model="form.auth_mode">
-                            <option value="header">Header + Bearer</option>
-                            <option value="bearer">Bearer only</option>
-                            <option value="cookie">Cookie</option>
-                            <option value="none">None</option>
-                        </select>
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Auth User Header</label>
-                        <input type="text" name="auth_user_header" class="input input-bordered input-sm" x-model="form.auth_user_header" placeholder="New-Api-User">
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Auth User Value</label>
-                        <input type="text" name="auth_user_value" class="input input-bordered input-sm" x-model="form.auth_user_value">
-                    </div>
-                    <div class="form-control md:col-span-2">
-                        <label class="label label-text text-xs">Auth Token</label>
-                        <input type="text" name="auth_token" class="input input-bordered input-sm" x-model="form.auth_token">
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Pricing Path</label>
-                        <input type="text" name="pricing_path" class="input input-bordered input-sm" x-model="form.pricing_path">
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Ratio Config Path</label>
-                        <input type="text" name="ratio_config_path" class="input input-bordered input-sm" x-model="form.ratio_config_path">
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Log Path</label>
-                        <input type="text" name="log_path" class="input input-bordered input-sm" x-model="form.log_path">
-                    </div>
-                    <div class="form-control">
-                        <label class="label label-text text-xs">Token Search Path</label>
-                        <input type="text" name="token_search_path" class="input input-bordered input-sm" x-model="form.token_search_path">
-                    </div>
+            <div class="actions-row mt-4">
+                <form method="POST" action="/control/servers/{{ s.id }}/sync">
+                    <button type="submit" class="btn-admin secondary">Sync</button>
+                </form>
+                <button type="button" class="btn-admin ghost" @click='editServer({{ s | tojson }})'>Edit</button>
+                <a href="/control/servers/{{ s.id }}/delete" class="btn-admin ghost" style="color: var(--admin-danger);" onclick="return confirm('Delete this server?')">Delete</a>
+            </div>
+        </article>
+        {% endfor %}
+    </section>
+
+    {% if not servers %}
+    <div class="table-card">
+        <div class="empty-state">Chưa có server nào được cấu hình.</div>
+    </div>
+    {% endif %}
+
+    <template x-if="formOpen">
+        <div>
+            <div class="drawer-overlay" @click="formOpen = false"></div>
+            <aside class="drawer-panel">
+                <button type="button" class="drawer-close" @click="formOpen = false" aria-label="Close server editor">×</button>
+
+                <div class="mt-4">
+                    <p class="page-eyebrow">Server editor</p>
+                    <h2 class="page-title" style="font-size: clamp(1.5rem, 3vw, 2rem);" x-text="editing ? 'Chỉnh sửa connector' : 'Thêm connector'"></h2>
+                    <p class="page-subtitle">Khai báo cách Pricing Hub xác thực, fetch pricing, resolve token, và query logs cho upstream server này.</p>
                 </div>
-                <div class="flex flex-wrap gap-4 mt-3">
-                    <label class="label cursor-pointer gap-2">
-                        <input type="checkbox" name="enabled" class="checkbox checkbox-sm" x-model="form.enabled">
-                        <span class="label-text text-xs">Enabled</span>
-                    </label>
-                    <label class="label cursor-pointer gap-2">
-                        <input type="checkbox" name="supports_group_chain" class="checkbox checkbox-sm" x-model="form.supports_group_chain">
-                        <span class="label-text text-xs">Group Chain</span>
-                    </label>
-                    <label class="label cursor-pointer gap-2">
-                        <input type="checkbox" name="ratio_config_enabled" class="checkbox checkbox-sm" x-model="form.ratio_config_enabled">
-                        <span class="label-text text-xs">Ratio Config</span>
-                    </label>
-                </div>
-                <input type="hidden" name="sort_order" :value="form.sort_order || 0">
-                <div class="modal-action">
-                    <button type="button" class="btn btn-sm" @click="formOpen = false">Cancel</button>
-                    <button type="submit" class="btn btn-sm btn-primary">Save</button>
-                </div>
-            </form>
+
+                <form method="POST" action="/control/servers/save" class="mt-4">
+                    <div class="field-grid">
+                        <div>
+                            <label class="form-label">Server id</label>
+                            <input type="text" name="id" class="form-control code-block" x-model="form.id" :readonly="editing" required>
+                            <div class="field-help" x-show="editing">Server id is locked for existing connectors.</div>
+                        </div>
+                        <div>
+                            <label class="form-label">Display name</label>
+                            <input type="text" name="name" class="form-control" x-model="form.name" required>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label class="form-label">Base URL</label>
+                            <input type="url" name="base_url" class="form-control code-block" x-model="form.base_url" required>
+                        </div>
+                        <div>
+                            <label class="form-label">Type</label>
+                            <select name="type" class="form-select" x-model="form.type" @change="applyTypeDefaults()">
+                                {% for t in server_types %}
+                                <option value="{{ t.value }}">{{ t.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="form-label">Multiple</label>
+                            <input type="number" step="0.01" min="0.01" name="quota_multiple" class="form-control" x-model="form.quota_multiple">
+                            <div class="field-help">Group ratio and displayed model prices are divided by this value.</div>
+                        </div>
+                        <div>
+                            <label class="form-label">Auth mode</label>
+                            <select name="auth_mode" class="form-select" x-model="form.auth_mode" @change="applyTypeDefaults()">
+                                <option value="header">Header + Bearer</option>
+                                <option value="bearer">Bearer only</option>
+                                <option value="cookie">Cookie</option>
+                                <option value="none">None</option>
+                            </select>
+                        </div>
+                        <div x-show="usesFixedUserHeader()">
+                            <label class="form-label">Auth user header</label>
+                            <input type="text" class="form-control code-block" value="New-Api-User" readonly>
+                            <input type="hidden" name="auth_user_header" :value="fixedUserHeader()">
+                            <div class="field-help">Default header from the standard NewAPI/RixAPI request format. Admin only needs to enter the User ID below.</div>
+                        </div>
+                        <div x-show="!usesFixedUserHeader()">
+                            <label class="form-label">Auth user header</label>
+                            <input type="text" name="auth_user_header" class="form-control code-block" x-model="form.auth_user_header" placeholder="Optional custom header">
+                            <div class="field-help">Only needed for non-standard server types.</div>
+                        </div>
+                        <div>
+                            <label class="form-label">Auth user value</label>
+                            <input type="text" name="auth_user_value" class="form-control" x-model="form.auth_user_value" :placeholder="usesFixedUserHeader() ? 'User ID' : 'Optional user header value'">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label class="form-label">Auth token</label>
+                            <input type="text" name="auth_token" class="form-control code-block" x-model="form.auth_token">
+                        </div>
+                        <div>
+                            <label class="form-label">Pricing path</label>
+                            <input type="text" name="pricing_path" class="form-control code-block" x-model="form.pricing_path">
+                        </div>
+                        <div>
+                            <label class="form-label">Ratio config path</label>
+                            <input type="text" name="ratio_config_path" class="form-control code-block" x-model="form.ratio_config_path">
+                        </div>
+                        <div>
+                            <label class="form-label">Log path</label>
+                            <input type="text" name="log_path" class="form-control code-block" x-model="form.log_path">
+                        </div>
+                        <div>
+                            <label class="form-label">Token search path</label>
+                            <input type="text" name="token_search_path" class="form-control code-block" x-model="form.token_search_path">
+                        </div>
+                        <div>
+                            <label class="form-label">Groups path</label>
+                            <input type="text" name="groups_path" class="form-control code-block" x-model="form.groups_path" placeholder="/api/user/self/groups">
+                            <div class="field-help">Leave empty to use the shopbot-style default for this server type.</div>
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <label class="form-label">Manual groups</label>
+                            <input type="text" name="manual_groups" class="form-control code-block" x-model="form.manual_groups" placeholder="default,Azure,Claude,Gemini">
+                            <div class="field-help">Same as shopbot: when set, public pricing and key selection will only use this comma-separated group list.</div>
+                        </div>
+                    </div>
+
+                    <div class="admin-card mt-4" style="padding: 18px;">
+                        <h3 class="section-title">Behavior flags</h3>
+                        <p class="section-copy">Bật tắt capability mà không cần sửa code.</p>
+                        <div class="check-grid mt-3">
+                            <label class="form-check">
+                                <input type="checkbox" name="enabled" class="form-check-input" x-model="form.enabled">
+                                Enabled
+                            </label>
+                            <label class="form-check">
+                                <input type="checkbox" name="supports_group_chain" class="form-check-input" x-model="form.supports_group_chain">
+                                Group chain
+                            </label>
+                            <label class="form-check">
+                                <input type="checkbox" name="ratio_config_enabled" class="form-check-input" x-model="form.ratio_config_enabled">
+                                Ratio config
+                            </label>
+                        </div>
+                    </div>
+
+                    <input type="hidden" name="sort_order" :value="form.sort_order || 0">
+
+                    <div class="actions-row mt-4">
+                        <button type="button" class="btn-admin ghost" @click="formOpen = false">Cancel</button>
+                        <button type="submit" class="btn-admin">Save server</button>
+                    </div>
+                </form>
+            </aside>
         </div>
-        <form method="dialog" class="modal-backdrop"><button @click="formOpen = false">close</button></form>
-    </dialog>
+    </template>
 </div>
 {% endblock %}
 
@@ -157,19 +237,34 @@
 function serversAdmin() {
     const defaultForm = {
         id: '', name: '', base_url: '', type: 'newapi', enabled: true,
-        sort_order: 0, supports_group_chain: false, ratio_config_enabled: false,
-        auth_mode: 'header', auth_user_header: 'New-Api-User', auth_user_value: '',
+        sort_order: 0, quota_multiple: 1.0, supports_group_chain: false, ratio_config_enabled: false,
+        auth_mode: 'bearer', auth_user_header: '', auth_user_value: '',
         auth_token: '', auth_cookie: '',
         pricing_path: '/api/pricing', ratio_config_path: '/api/ratio_config',
         log_path: '/api/log/self', token_search_path: '/api/token/search',
-        groups_path: '', notes: '',
+        groups_path: '', manual_groups: '', notes: '',
     };
     return {
         formOpen: false,
         editing: false,
         form: { ...defaultForm },
+        fixedUserHeader() {
+            return 'New-Api-User';
+        },
+        usesFixedUserHeader() {
+            return ['newapi', 'rixapi'].includes(this.form.type) && this.form.auth_mode === 'header';
+        },
+        applyTypeDefaults() {
+            if (['newapi', 'rixapi'].includes(this.form.type)) {
+                if (!this.form.auth_mode || this.form.auth_mode === 'bearer') {
+                    this.form.auth_mode = 'header';
+                }
+                this.form.auth_user_header = this.fixedUserHeader();
+            }
+        },
         openAddForm() {
             this.form = { ...defaultForm };
+            this.applyTypeDefaults();
             this.editing = false;
             this.formOpen = true;
         },
@@ -177,19 +272,20 @@ function serversAdmin() {
             this.form = {
                 id: s.id, name: s.name, base_url: s.base_url,
                 type: s.type || 'newapi', enabled: !!s.enabled,
-                sort_order: s.sort_order || 0,
+                sort_order: s.sort_order || 0, quota_multiple: s.quota_multiple || 1.0,
                 supports_group_chain: !!s.supports_group_chain,
                 ratio_config_enabled: !!s.ratio_config_enabled,
-                auth_mode: s.auth_mode || 'header',
-                auth_user_header: s.auth_user_header || 'New-Api-User',
+                auth_mode: s.auth_mode || 'bearer',
+                auth_user_header: s.auth_user_header || '',
                 auth_user_value: s.auth_user_value || '',
                 auth_token: s.auth_token || '', auth_cookie: s.auth_cookie || '',
                 pricing_path: s.pricing_path || '/api/pricing',
                 ratio_config_path: s.ratio_config_path || '/api/ratio_config',
                 log_path: s.log_path || '/api/log/self',
                 token_search_path: s.token_search_path || '/api/token/search',
-                groups_path: s.groups_path || '', notes: s.notes || '',
+                groups_path: s.groups_path || '', manual_groups: s.manual_groups || '', notes: s.notes || '',
             };
+            this.applyTypeDefaults();
             this.editing = true;
             this.formOpen = true;
         }
