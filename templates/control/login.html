@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Admin Login — Pricing Hub{% endblock %}
+
+{% block content %}
+<div class="flex justify-center items-center min-h-[60vh]">
+    <div class="card bg-base-100 shadow-lg w-full max-w-sm">
+        <div class="card-body">
+            <h2 class="card-title justify-center mb-4">Admin Login</h2>
+            {% if error %}
+            <div class="alert alert-error text-sm mb-2">{{ error }}</div>
+            {% endif %}
+            <form method="POST" action="/control/login">
+                <div class="form-control mb-4">
+                    <input type="password" name="secret" placeholder="Admin secret" class="input input-bordered" required autofocus>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Login</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

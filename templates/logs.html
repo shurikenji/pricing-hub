@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Usage Logs — Pricing Hub{% endblock %}
+
+{% block content %}
+<div x-data="logsApp()" x-cloak>
+    <h1 class="text-2xl font-bold mb-6">Usage Logs</h1>
+
+    <!-- Input form -->
+    <div class="card bg-base-100 shadow-sm mb-6">
+        <div class="card-body p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <select class="select select-bordered select-sm" x-model="serverId">
+                    <option value="">Select server</option>
+                    {% for s in servers %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="text" placeholder="API Key (sk-...)" class="input input-bordered input-sm" x-model="apiKey">
+                <input type="text" placeholder="Model filter" class="input input-bordered input-sm" x-model="modelName">
+                <button class="btn btn-primary btn-sm" @click="fetchLogs()" :disabled="loading || !serverId">
+                    <span x-show="loading" class="loading loading-spinner loading-xs"></span>
+                    Search Logs
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+                <input type="text" placeholder="Token name" class="input input-bordered input-sm" x-model="tokenName">
+                <select class="select select-bordered select-sm" x-model="group">
+                    <option value="">All groups</option>
+                </select>
+                <div class="flex gap-2">
+                    <input type="date" class="input input-bordered input-sm flex-1" x-model="startDate">
+                    <input type="date" class="input input-bordered input-sm flex-1" x-model="endDate">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert -->
+    <div x-show="error" class="alert alert-error mb-4">
+        <span x-text="error"></span>
+    </div>
+    <div x-show="resolvedToken" class="alert alert-info mb-4">
+        <span>Resolved token: <strong x-text="resolvedToken"></strong></span>
+    </div>
+
+    <!-- Results -->
+    <div x-show="logs.length > 0">
+        <div class="flex justify-between items-center mb-2">
+            <span class="text-sm text-base-content/60"><span x-text="total"></span> records</span>
+            <button class="btn btn-sm btn-outline" @click="exportCsv()">Export CSV</button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="table table-xs table-zebra">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Model</th>
+                        <th>Group</th>
+                        <th>Token</th>
+                        <th>Prompt</th>
+                        <th>Completion</th>
+                        <th>Est. Cost</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="log in logs" :key="log.id || log.created_at">
+                        <tr>
+                            <td class="text-xs whitespace-nowrap" x-text="formatTime(log.created_at)"></td>
+                            <td class="font-mono text-xs" x-text="log.model_name || log.model"></td>
+                            <td class="text-xs" x-text="log.group || '—'"></td>
+                            <td class="text-xs" x-text="log.token_name || '—'"></td>
+                            <td class="text-xs" x-text="(log.prompt_tokens || 0).toLocaleString()"></td>
+                            <td class="text-xs" x-text="(log.completion_tokens || 0).toLocaleString()"></td>
+                            <td class="text-xs font-semibold" x-text="estimateCost(log)"></td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+        <!-- Pagination -->
+        <div class="flex justify-center gap-2 mt-4">
+            <button class="btn btn-sm" :disabled="page <= 1" @click="page--; fetchLogs()">Prev</button>
+            <span class="btn btn-sm btn-ghost" x-text="'Page ' + page"></span>
+            <button class="btn btn-sm" @click="page++; fetchLogs()">Next</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function logsApp() {
+    return {
+        serverId: '', apiKey: '', tokenName: '', modelName: '', group: '',
+        startDate: '', endDate: '', page: 1, pageSize: 50,
+        logs: [], total: 0, loading: false, error: '',
+        resolvedToken: '',
+
+        async fetchLogs() {
+            this.loading = true;
+            this.error = '';
+            this.resolvedToken = '';
+            const body = {
+                server_id: this.serverId,
+                page: this.page,
+                pageSize: this.pageSize,
+            };
+            if (this.apiKey) body.api_key = this.apiKey;
+            if (this.tokenName) body.token_name = this.tokenName;
+            if (this.modelName) body.model_name = this.modelName;
+            if (this.group) body.group = this.group;
+            if (this.startDate) body.start_timestamp = Math.floor(new Date(this.startDate).getTime() / 1000);
+            if (this.endDate) body.end_timestamp = Math.floor(new Date(this.endDate + 'T23:59:59').getTime() / 1000);
+
+            try {
+                const resp = await fetch('/api/logs', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json();
+                if (data.error) { this.error = data.error; this.logs = []; }
+                else {
+                    const raw = data.data || data.items || data;
+                    this.logs = Array.isArray(raw) ? raw : (raw.logs || []);
+                    this.total = data.total || this.logs.length;
+                    if (data.resolved_token) this.resolvedToken = data.resolved_token;
+                }
+            } catch (e) {
+                this.error = 'Request failed: ' + e.message;
+            }
+            this.loading = false;
+        },
+
+        formatTime(ts) {
+            if (!ts) return '—';
+            if (typeof ts === 'number') return new Date(ts * 1000).toLocaleString();
+            return new Date(ts).toLocaleString();
+        },
+
+        estimateCost(log) {
+            const mr = log.model_ratio || 0;
+            const cr = log.completion_ratio || 1;
+            const gr = log.group_ratio || 1;
+            const pt = log.prompt_tokens || 0;
+            const ct = log.completion_tokens || 0;
+            const mp = log.model_price || 0;
+            if (mp > 0 && mr === 0) return '$' + (gr * mp).toFixed(4);
+            if (mr > 0) return '$' + (gr * mr * (pt + ct * cr) / 500000).toFixed(6);
+            const q = log.quota || 0;
+            if (q > 0) return (q / 500000).toFixed(6) + '$';
+            return '—';
+        },
+
+        exportCsv() {
+            if (!this.logs.length) return;
+            const headers = ['Time','Model','Group','Token','Prompt','Completion','Quota'];
+            const rows = this.logs.map(l => [
+                this.formatTime(l.created_at), l.model_name||l.model||'', l.group||'',
+                l.token_name||'', l.prompt_tokens||0, l.completion_tokens||0, l.quota||0
+            ]);
+            const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+            const blob = new Blob([csv], {type: 'text/csv'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'usage-logs.csv'; a.click();
+            URL.revokeObjectURL(url);
+        }
+    };
+}
+</script>
+{% endblock %}

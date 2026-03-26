@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}API Key Manager — Pricing Hub{% endblock %}
+
+{% block content %}
+<div x-data="keysApp()" x-cloak>
+    <h1 class="text-2xl font-bold mb-6">API Key Manager</h1>
+
+    <!-- Input -->
+    <div class="card bg-base-100 shadow-sm mb-6">
+        <div class="card-body p-4">
+            <div class="flex flex-col md:flex-row gap-3">
+                <select class="select select-bordered select-sm flex-shrink-0" x-model="serverId">
+                    <option value="">Select server</option>
+                    {% for s in servers %}
+                    <option value="{{ s.id }}">{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="text" placeholder="Enter your API key (sk-...)" class="input input-bordered input-sm flex-1" x-model="apiKey">
+                <button class="btn btn-primary btn-sm" @click="resolveKey()" :disabled="loading || !serverId || !apiKey">
+                    <span x-show="loading" class="loading loading-spinner loading-xs"></span>
+                    Resolve Key
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error -->
+    <div x-show="error" class="alert alert-error mb-4">
+        <span x-text="error"></span>
+    </div>
+
+    <!-- Key info -->
+    <template x-if="keyInfo">
+        <div class="card bg-base-100 shadow-sm fade-in">
+            <div class="card-body p-4">
+                <h2 class="card-title text-lg">Key Information</h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div>
+                        <div class="stat bg-base-200 rounded-lg">
+                            <div class="stat-title">Token Name</div>
+                            <div class="stat-value text-lg" x-text="keyInfo.name || 'Unknown'"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="stat bg-base-200 rounded-lg">
+                            <div class="stat-title">Remaining Quota</div>
+                            <div class="stat-value text-lg text-success" x-text="keyInfo.remain_quota != null ? (keyInfo.remain_quota / 500000).toFixed(2) + ' $' : 'N/A'"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current groups -->
+                <div class="mt-4">
+                    <h3 class="text-sm font-semibold mb-2">Current Group(s)</h3>
+                    <div class="flex flex-wrap gap-2">
+                        <template x-for="(g, i) in keyInfo.display_groups" :key="i">
+                            <span class="badge badge-primary badge-lg" x-text="g"></span>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Available models count -->
+                <div class="mt-4 text-sm text-base-content/60">
+                    <p>This key has access to models in the group(s) listed above.</p>
+                </div>
+            </div>
+        </div>
+    </template>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function keysApp() {
+    return {
+        serverId: '', apiKey: '', loading: false, error: '',
+        keyInfo: null,
+
+        async resolveKey() {
+            this.loading = true;
+            this.error = '';
+            this.keyInfo = null;
+            try {
+                const resp = await fetch('/api/keys/resolve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ server_id: this.serverId, api_key: this.apiKey }),
+                });
+                const data = await resp.json();
+                if (data.error) this.error = data.error;
+                else this.keyInfo = data;
+            } catch (e) {
+                this.error = 'Request failed: ' + e.message;
+            }
+            this.loading = false;
+        }
+    };
+}
+</script>
+{% endblock %}
