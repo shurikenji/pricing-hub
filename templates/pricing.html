@@ -73,6 +73,17 @@
                     <option value="request_scaled">Scaled request</option>
                 </select>
             </div>
+            <div>
+                <label class="field-label">Sort by</label>
+                <select class="select-control" x-model="sortBy" @change="applyFilters()">
+                    <option value="name_asc">Name A → Z</option>
+                    <option value="name_desc">Name Z → A</option>
+                    <option value="price_asc">Price: Low → High</option>
+                    <option value="price_desc">Price: High → Low</option>
+                    <option value="provider">By provider</option>
+                    <option value="groups">By groups count</option>
+                </select>
+            </div>
         </div>
 
         <div class="chip-cloud" x-show="groups.length">
@@ -98,7 +109,9 @@
     <div x-show="loading" class="shell-panel fade-up">
         <div class="empty-state">
             <div>
-                <div class="empty-state__icon">Loading</div>
+                <div class="empty-state__icon">
+                    <svg class="spin-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M7.76 7.76L4.93 4.93"/></svg>
+                </div>
                 <h3 class="panel-title">Refreshing pricing</h3>
                 <p class="panel-copy mt-2">Fetching the latest model and group data from the selected server.</p>
             </div>
@@ -146,7 +159,7 @@
                     <template x-if="model.pricing_mode !== 'token'">
                         <div class="price-line">
                             <span class="price-kicker">Per request</span>
-                            <span class="price-value text-[var(--accent-strong)]" x-text="formatPrice(displayRequestPrice(model))"></span>
+                            <span class="price-value text-[var(--accent)]" x-text="formatPrice(displayRequestPrice(model))"></span>
                         </div>
                     </template>
                 </div>
@@ -168,7 +181,6 @@
                     <tr>
                         <th>Model</th>
                         <th>Provider</th>
-                        <th>Copy</th>
                         <th>Input</th>
                         <th>Output</th>
                         <th>Tags</th>
@@ -180,17 +192,8 @@
                         <tr class="cursor-pointer" @click="openDetail(model)">
                             <td>
                                 <div class="code-text text-sm" x-text="model.model_name"></div>
-                                <div class="panel-copy mt-1" x-text="model.description || ''"></div>
                             </td>
                             <td x-text="model.vendor_name || activeServerName()"></td>
-                            <td>
-                                <button type="button" class="icon-button" @click.stop="copyModelId(model, $event.currentTarget)" :aria-label="'Copy ' + model.model_name">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 16.5h8.25A2.25 2.25 0 0018.5 14.25V6a2.25 2.25 0 00-2.25-2.25H8A2.25 2.25 0 005.75 6v8.25A2.25 2.25 0 008 16.5z" />
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.25 7.5H6A2.25 2.25 0 003.75 9.75V18A2.25 2.25 0 006 20.25h8.25A2.25 2.25 0 0016.5 18v-2.25" />
-                                    </svg>
-                                </button>
-                            </td>
                             <td x-text="model.pricing_mode === 'token' ? formatPrice(displayInputPrice(model), '/1M') : formatPrice(displayRequestPrice(model))"></td>
                             <td x-text="model.pricing_mode === 'token' ? formatPrice(displayOutputPrice(model), '/1M') : '-'"></td>
                             <td>
@@ -211,7 +214,9 @@
     <div x-show="!loading && selectedServer && filteredModels.length === 0" class="shell-panel fade-up">
         <div class="empty-state">
             <div>
-                <div class="empty-state__icon">Empty</div>
+                <div class="empty-state__icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                </div>
                 <h3 class="panel-title">No matching models</h3>
                 <p class="panel-copy mt-2">Try clearing one or more filters.</p>
             </div>
@@ -318,6 +323,9 @@
             </aside>
         </div>
     </template>
+
+    <!-- Toast -->
+    <div x-show="toastVisible" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-2" class="toast-notification" x-text="toastMessage"></div>
 </div>
 {% endblock %}
 
@@ -334,6 +342,7 @@ function pricingApp() {
         selectedGroup: '',
         selectedTag: '',
         selectedMode: '',
+        sortBy: 'name_asc',
         detailOpen: false,
         detailModel: null,
         models: [],
@@ -341,6 +350,9 @@ function pricingApp() {
         filteredModels: [],
         allTags: [],
         loadRequestId: 0,
+        toastMessage: '',
+        toastVisible: false,
+        toastTimer: null,
 
         init() {
             this.selectedServer = String(this.pricing?.server_id || '{{ selected_server_id }}' || '');
@@ -458,7 +470,44 @@ function pricingApp() {
             if (this.selectedMode) {
                 result = result.filter((model) => model.pricing_mode === this.selectedMode);
             }
-            this.filteredModels = result;
+            this.filteredModels = this.sortModels([...result]);
+        },
+
+        modelPrimaryCost(model) {
+            if (model.pricing_mode === 'token') {
+                const snap = this.preferredGroupSnapshot(model);
+                return snap?.input_price_per_1m ?? model.input_price_per_1m ?? Infinity;
+            }
+            const snap = this.preferredGroupSnapshot(model);
+            return snap?.request_price ?? model.request_price ?? Infinity;
+        },
+
+        sortModels(list) {
+            const collator = new Intl.Collator('en', { sensitivity: 'base' });
+            switch (this.sortBy) {
+                case 'name_asc':
+                    return list.sort((a, b) => collator.compare(a.model_name, b.model_name));
+                case 'name_desc':
+                    return list.sort((a, b) => collator.compare(b.model_name, a.model_name));
+                case 'price_asc':
+                    return list.sort((a, b) => this.modelPrimaryCost(a) - this.modelPrimaryCost(b));
+                case 'price_desc':
+                    return list.sort((a, b) => this.modelPrimaryCost(b) - this.modelPrimaryCost(a));
+                case 'provider':
+                    return list.sort((a, b) => {
+                        const va = (a.vendor_name || '').toLowerCase();
+                        const vb = (b.vendor_name || '').toLowerCase();
+                        return va === vb ? collator.compare(a.model_name, b.model_name) : collator.compare(va, vb);
+                    });
+                case 'groups':
+                    return list.sort((a, b) => {
+                        const ga = (a.enable_groups || []).length;
+                        const gb = (b.enable_groups || []).length;
+                        return gb - ga || collator.compare(a.model_name, b.model_name);
+                    });
+                default:
+                    return list;
+            }
         },
 
         groupDisplayName(groupName) {
@@ -529,29 +578,21 @@ function pricingApp() {
             this.detailOpen = true;
         },
 
+        showToast(message) {
+            if (this.toastTimer) clearTimeout(this.toastTimer);
+            this.toastMessage = message;
+            this.toastVisible = true;
+            this.toastTimer = setTimeout(() => { this.toastVisible = false; }, 2000);
+        },
+
         async copyModelId(model, button) {
             if (!model?.model_name) return;
-            const original = button?.dataset?.label || button?.textContent?.trim() || '';
             try {
                 await navigator.clipboard.writeText(model.model_name);
-                if (button) {
-                    if (!button.dataset.label) button.dataset.label = original;
-                    const textNode = button.querySelector('span');
-                    if (textNode) {
-                        textNode.textContent = 'Copied';
-                    } else {
-                        button.dataset.copied = 'true';
-                    }
-                    setTimeout(() => {
-                        const resetNode = button.querySelector('span');
-                        if (resetNode && button.dataset.label) {
-                            resetNode.textContent = button.dataset.label;
-                        }
-                        delete button.dataset.copied;
-                    }, 1400);
-                }
+                this.showToast(`Copied: ${model.model_name}`);
             } catch (error) {
                 console.error('Copy failed:', error);
+                this.showToast('Copy failed');
             }
         },
     };
